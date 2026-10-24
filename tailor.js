@@ -18,7 +18,7 @@ export function tailorResume(parsed, profile, job, fit, extraSkills = []) {
   const edu = parsed.education || {};
   // Students lead with who they are (school, major, class year) and put Education right under it.
   const studentLead = () => {
-    const who = `${edu.major ? `${edu.major} student` : 'Student'}${edu.school ? ` at ${edu.school}` : ''}${edu.gradYear ? ` (graduating ${edu.gradYear})` : ''}`;
+    const who = `${edu.major ? `${edu.major} student` : 'Student'}${edu.school ? ` at ${edu.school}` : ''}${edu.gradDate ? ` (graduating ${edu.gradDate})` : ''}`;
     return `${who}${focus.length ? ` with hands-on experience in ${listJoin(focus)}` : ''}, seeking a ${job.term ? `${job.term.split(',')[0]} ` : ''}${roleNoun(job.title).replace(/\s*\b(intern(ship)?|co-?op)\b\s*/gi, ' ').trim() || 'internship'} internship.`.replace(/ internship internship/, ' internship');
   };
   sections.push({ title: 'Summary', lines: [
@@ -122,7 +122,7 @@ export function coverLetter(profile, job, fit, edu = {}) {
   const skills = fit.matched.slice(0, 4).map(pretty);
   if (fit.student) return `Dear ${job.company} recruiting team,
 
-I'm ${edu.major ? `a ${edu.major} student` : 'a student'}${edu.school ? ` at ${edu.school}` : ''}${edu.gradYear ? `, graduating in ${edu.gradYear}` : ''}, and I'm applying for the ${job.title} position${job.term ? ` for ${job.term.split(',')[0]}` : ''}. ${skills.length ? `Through my coursework and projects I've built hands-on experience with ${listJoin(skills)}, which this internship uses directly.` : 'This internship lines up closely with what I have been studying and building.'}
+I'm ${edu.major ? `a ${edu.major} student` : 'a student'}${edu.school ? ` at ${edu.school}` : ''}${edu.gradDate ? `, graduating in ${edu.gradDate}` : ''}, and I'm applying for the ${job.title} position${job.term ? ` for ${job.term.split(',')[0]}` : ''}. ${skills.length ? `Through my coursework and projects I've built hands-on experience with ${listJoin(skills)}, which this internship uses directly.` : 'This internship lines up closely with what I have been studying and building.'}
 
 [One sentence on your best project, class or club result that is relevant to this role.]
 
@@ -152,7 +152,7 @@ export function applicationAnswers(profile, job, fit, edu = {}) {
   const [first, ...rest] = (profile.name || '').split(' ');
   const student = fit.student ? {
     School: edu.school, 'Degree / major': [edu.degree, edu.major].filter(Boolean).join(', '),
-    'Expected graduation': edu.gradYear ? String(edu.gradYear) : '', GPA: edu.gpa,
+    'Expected graduation': edu.gradDate || '', GPA: edu.gpa,
     'Internship term': job.term || '',
   } : {};
   return {

@@ -389,6 +389,12 @@ async function openKit(job) {
     try {
       const r = await aiTailor(state.key, state.model, state.resume, job);
       const d = { name: state.profile.name, contact: doc.contact, sections: [{ title: 'SUMMARY', lines: [r.resume.summary] }, { title: 'SKILLS', lines: [r.resume.skills.join(', ')] }, ...r.resume.sections.map(s => ({ title: s.title.toUpperCase(), lines: s.lines }))] };
+      // Education (and its graduation date) is never rewritten: always put the resume's own lines back.
+      const eduLines = state.parsed.sections.filter(s => s.key === 'education').flatMap(s => s.lines);
+      if (eduLines.length) {
+        d.sections = d.sections.filter(s => !/EDUCATION|ACADEMIC/.test(s.title));
+        d.sections.splice(job.lane === 'intern' ? 1 : d.sections.length, 0, { title: 'EDUCATION', lines: eduLines });
+      }
       $('#kitResume').value = resumeText(d);
       if (r.coverLetter) $('#kitCover').value = r.coverLetter;
       saveEdits();

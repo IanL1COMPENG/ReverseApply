@@ -40,7 +40,7 @@ const HEADINGS = {
   summary: /^(professional )?(summary|profile|objective|about( me)?)$/i,
   experience: /^(work |professional |relevant )?(experience|employment( history)?|work history)$/i,
   projects: /^(projects?|personal projects|selected projects|academic projects)$/i,
-  education: /^(education|academics?|education & certifications)$/i,
+  education: /^(education|academics?|academic background|education (&|and) [a-z ]{3,30})$/i,
   skills: /^(technical |core )?(skills|competencies|technologies|skills & interests|tools)$/i,
   certifications: /^(certifications?|licenses|certificates)$/i,
   leadership: /^(leadership|activities|leadership & activities|involvement|volunteer(ing)?( experience)?)$/i,
@@ -67,7 +67,9 @@ export function parseResume(text) {
   }
   sections.push(cur);
   const kept = sections.filter(s => s.lines.length || s.key !== 'header');
-  const eduText = kept.filter(s => s.key === 'education').flatMap(s => s.lines).join('\n') || text;
+  // Without an Education heading, only school/degree lines (and the line under each) count; never job or award dates.
+  const eduText = kept.filter(s => s.key === 'education').flatMap(s => s.lines).join('\n')
+    || lines.flatMap((l, i) => (SCHOOL_RE.test(l) || DEGREE_RE.test(l) ? [l, lines[i + 1] || ''] : [])).join('\n');
   const entries = parseEntries(kept);
   return {
     profile, sections: kept, skills: extractSkills(text), years: yearsOfExperience(text), education: parseEducation(eduText), entries,
@@ -96,11 +98,28 @@ export function parseEntries(sections) {
   });
 }
 
-// School, degree, major, graduation year and GPA, for internship matching and student resumes.
+const SCHOOL_RE = /universit|college|institute|school of|polytechnic/i;
+const DEGREE_RE = /\b(B\.?S\.?|B\.?A\.?|B\.?Eng|BBA|Bachelor|M\.?S\.?|M\.?A\.?|MBA|Master|Ph\.?D|Associate)\b/;
+const MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?';
+
+// The graduation date exactly as the resume writes it, taken only from the first (current) degree:
+// its own line and the line right under it. "Expected May 2028", "Aug 2025 – May 2029", "2029".
+export function gradDateOf(edu) {
+  const lines = edu.split('\n');
+  const i = lines.findIndex(l => SCHOOL_RE.test(l) || DEGREE_RE.test(l));
+  const block = (i >= 0 ? lines.slice(i, i + 2) : lines.slice(0, 2)).join('  ');
+  const date = `(?:${MONTH}\\s+)?(?:19|20)\\d{2}`;
+  const m = block.match(new RegExp(`(?:expected|anticipated|graduat\\w*|grad\\.?|class of)[:\\s]*(${date})`, 'i'))
+    || block.match(new RegExp(`${date}\\s*(?:-|–|—|to)\\s*(${date})`, 'i'))
+    || [...block.matchAll(new RegExp(`(${date})`, 'gi'))].pop();
+  if (!m) return { gradDate: '', gradYear: null };
+  const gradDate = m[1].trim();
+  return { gradDate, gradYear: +gradDate.match(/(?:19|20)\d{2}/)[0] };
+}
+
+// School, degree, major, graduation date and GPA, for internship matching and student resumes.
 export function parseEducation(edu) {
-  const now = new Date().getFullYear();
-  const years = [...edu.matchAll(/\b(20\d{2})\b/g)].map(m => +m[1]).filter(y => y <= now + 6);
-  const school = (edu.split('\n').find(l => /universit|college|institute|school of|polytechnic/i.test(l)) || '').split(/\s[—–|-]\s|,\s(?=[A-Z]{2}\b)/)[0].trim();
+  const school = (edu.split('\n').find(l => SCHOOL_RE.test(l)) || '').split(/\s[—–|-]\s|,\s(?=[A-Z]{2}\b)/)[0].trim();
   const degreeM = edu.match(/\b(B\.?S\.?|B\.?A\.?|B\.?Eng|BBA|Bachelor(?:'s)?(?: of [A-Z][a-z]+)?|M\.?S\.?|M\.?A\.?|MBA|Master(?:'s)?(?: of [A-Z][a-z]+)?|Ph\.?D\.?|Associate(?:'s)?)\b/);
   const majorM = edu.match(/\b(?:B\.?S\.?|B\.?A\.?|Bachelor(?:'s)?(?: of [A-Za-z]+)?|M\.?S\.?|Master(?:'s)?(?: of [A-Za-z]+)?|Major)\s*(?:in|of|:|,)?\s*([A-Z][A-Za-z&]+(?: [A-Z&][A-Za-z&]+){0,3})/);
   const gpa = (edu.match(/GPA[:\s]*([0-4]\.\d{1,2})/i) || [])[1] || '';
@@ -108,7 +127,7 @@ export function parseEducation(edu) {
     school, gpa,
     degree: degreeM ? degreeM[1] : '',
     major: majorM ? majorM[1].replace(/\s+(GPA|Expected|Class).*$/, '') : '',
-    gradYear: years.length ? Math.max(...years) : null,
+    ...gradDateOf(edu),
     // The first degree listed is the current one on a student resume.
     gradStudent: !!degreeM && /^(M|Ph)/.test(degreeM[1]),
   };
