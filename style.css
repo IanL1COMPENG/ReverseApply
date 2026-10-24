@@ -101,6 +101,9 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); ou
 .chip.miss { background: color-mix(in srgb, var(--bad) 10%, transparent); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
 .chip input { width: auto; margin: 0 4px 0 0; vertical-align: -1px; }
 
+.intern-intro { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; }
+.intern-intro p { margin: 0; }
+.tag { display: inline-block; font-size: .72rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); }
 .jobs-head { display: grid; gap: 12px; margin-bottom: 16px; }
 .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .filters label { display: flex; gap: 6px; align-items: center; font-size: .85rem; white-space: nowrap; }

@@ -15,10 +15,18 @@ export function tailorResume(parsed, profile, job, fit, extraSkills = []) {
 
   const summary = bySection('summary').flatMap(s => s.lines);
   const focus = [...lead, ...extraSkills].slice(0, 6).map(pretty);
+  const edu = parsed.education || {};
+  // Students lead with who they are (school, major, class year) and put Education right under it.
+  const studentLead = () => {
+    const who = `${edu.major ? `${edu.major} student` : 'Student'}${edu.school ? ` at ${edu.school}` : ''}${edu.gradYear ? ` (graduating ${edu.gradYear})` : ''}`;
+    return `${who}${focus.length ? ` with hands-on experience in ${listJoin(focus)}` : ''}, seeking a ${job.term ? `${job.term.split(',')[0]} ` : ''}${roleNoun(job.title).replace(/\s*\b(intern(ship)?|co-?op)\b\s*/gi, ' ').trim() || 'internship'} internship.`.replace(/ internship internship/, ' internship');
+  };
   sections.push({ title: 'Summary', lines: [
-    focus.length ? `Hands-on experience with ${listJoin(focus)}, targeting ${roleNoun(job.title)} roles.` : `Targeting ${roleNoun(job.title)} roles.`,
+    fit.student ? studentLead()
+      : focus.length ? `Hands-on experience with ${listJoin(focus)}, targeting ${roleNoun(job.title)} roles.` : `Targeting ${roleNoun(job.title)} roles.`,
     ...summary,
   ] });
+  if (fit.student) for (const s of bySection('education')) sections.push({ title: s.title || 'Education', lines: s.lines });
 
   const original = bySection('skills').flatMap(s => s.lines).join(', ').replace(BULLET, '');
   const relevant = [...new Set([...lead, ...extraSkills])].map(pretty);
@@ -30,11 +38,12 @@ export function tailorResume(parsed, profile, job, fit, extraSkills = []) {
   ].filter(Boolean) });
 
   for (const key of ORDER.slice(2)) {
+    if (fit.student && key === 'education') continue;
     for (const s of bySection(key)) sections.push({ title: s.title || key, lines: reorderBullets(s.lines, hits) });
   }
   for (const s of parsed.sections) if (!ORDER.includes(s.key) && s.key !== 'header') sections.push({ title: s.title, lines: s.lines });
   // Resumes without recognisable headings: keep everything after the header block.
-  if (sections.length === 2) {
+  if (sections.length === 2 + (fit.student ? bySection('education').length : 0)) {
     const body = parsed.sections.find(s => s.key === 'header')?.lines.slice(3) || [];
     if (body.length) sections.push({ title: 'Experience', lines: reorderBullets(body, hits) });
   }
@@ -109,8 +118,21 @@ export function resumeText(doc) {
   return [doc.name, doc.contact, '', ...doc.sections.flatMap(s => [s.title.toUpperCase(), ...s.lines, ''])].join('\n');
 }
 
-export function coverLetter(profile, job, fit) {
+export function coverLetter(profile, job, fit, edu = {}) {
   const skills = fit.matched.slice(0, 4).map(pretty);
+  if (fit.student) return `Dear ${job.company} recruiting team,
+
+I'm ${edu.major ? `a ${edu.major} student` : 'a student'}${edu.school ? ` at ${edu.school}` : ''}${edu.gradYear ? `, graduating in ${edu.gradYear}` : ''}, and I'm applying for the ${job.title} position${job.term ? ` for ${job.term.split(',')[0]}` : ''}. ${skills.length ? `Through my coursework and projects I've built hands-on experience with ${listJoin(skills)}, which this internship uses directly.` : 'This internship lines up closely with what I have been studying and building.'}
+
+[One sentence on your best project, class or club result that is relevant to this role.]
+
+[One sentence on why ${job.company} specifically: what you want to learn there.]
+
+My resume is attached. I'd love the chance to learn from your team and contribute this ${job.term ? job.term.split(' ')[0].toLowerCase() : 'term'}. Thank you for considering me.
+
+Sincerely,
+${profile.name || ''}
+${[profile.email, profile.phone].filter(Boolean).join(' · ')}`;
   return `Dear ${job.company} hiring team,
 
 I'm applying for the ${job.title} role. ${skills.length ? `My background in ${listJoin(skills)} lines up closely with what this position calls for, ` : 'My background lines up closely with what this position calls for, '}and I'd welcome the chance to bring that to ${job.company}.
@@ -126,9 +148,15 @@ ${profile.name || ''}
 ${[profile.email, profile.phone].filter(Boolean).join(' · ')}`;
 }
 
-export function applicationAnswers(profile, job, fit) {
+export function applicationAnswers(profile, job, fit, edu = {}) {
   const [first, ...rest] = (profile.name || '').split(' ');
+  const student = fit.student ? {
+    School: edu.school, 'Degree / major': [edu.degree, edu.major].filter(Boolean).join(', '),
+    'Expected graduation': edu.gradYear ? String(edu.gradYear) : '', GPA: edu.gpa,
+    'Internship term': job.term || '',
+  } : {};
   return {
+    ...student,
     'First name': first || '', 'Last name': rest.join(' '), Email: profile.email, Phone: profile.phone,
     Location: profile.location, LinkedIn: profile.linkedin, 'Website / GitHub': profile.site,
     'Authorized to work': /authorized/i.test(profile.auth || '') ? 'Yes' : 'No',

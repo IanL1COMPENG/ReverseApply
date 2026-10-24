@@ -65,7 +65,27 @@ export function parseResume(text) {
     else if (raw) cur.lines.push(raw);
   }
   sections.push(cur);
-  return { profile, sections: sections.filter(s => s.lines.length || s.key !== 'header'), skills: extractSkills(text), years: yearsOfExperience(text) };
+  const kept = sections.filter(s => s.lines.length || s.key !== 'header');
+  const eduText = kept.filter(s => s.key === 'education').flatMap(s => s.lines).join('\n') || text;
+  return { profile, sections: kept, skills: extractSkills(text), years: yearsOfExperience(text), education: parseEducation(eduText) };
+}
+
+// School, degree, major, graduation year and GPA, for internship matching and student resumes.
+export function parseEducation(edu) {
+  const now = new Date().getFullYear();
+  const years = [...edu.matchAll(/\b(20\d{2})\b/g)].map(m => +m[1]).filter(y => y <= now + 6);
+  const school = (edu.split('\n').find(l => /universit|college|institute|school of|polytechnic/i.test(l)) || '').split(/\s[—–|-]\s|,\s(?=[A-Z]{2}\b)/)[0].trim();
+  const degreeM = edu.match(/\b(B\.?S\.?|B\.?A\.?|B\.?Eng|BBA|Bachelor(?:'s)?(?: of [A-Z][a-z]+)?|M\.?S\.?|M\.?A\.?|MBA|Master(?:'s)?(?: of [A-Z][a-z]+)?|Ph\.?D\.?|Associate(?:'s)?)\b/);
+  const majorM = edu.match(/\b(?:B\.?S\.?|B\.?A\.?|Bachelor(?:'s)?(?: of [A-Za-z]+)?|M\.?S\.?|Master(?:'s)?(?: of [A-Za-z]+)?|Major)\s*(?:in|of|:|,)?\s*([A-Z][A-Za-z&]+(?: [A-Z&][A-Za-z&]+){0,3})/);
+  const gpa = (edu.match(/GPA[:\s]*([0-4]\.\d{1,2})/i) || [])[1] || '';
+  return {
+    school, gpa,
+    degree: degreeM ? degreeM[1] : '',
+    major: majorM ? majorM[1].replace(/\s+(GPA|Expected|Class).*$/, '') : '',
+    gradYear: years.length ? Math.max(...years) : null,
+    // The first degree listed is the current one on a student resume.
+    gradStudent: !!degreeM && /^(M|Ph)/.test(degreeM[1]),
+  };
 }
 
 function guessName(lines) {

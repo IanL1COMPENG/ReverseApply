@@ -52,12 +52,53 @@ async function fetchBoard(ats, slug) {
   return (await getJson(`https://api.ashbyhq.com/posting-api/job-board/${slug}`)).jobs.filter(j => j.isListed !== false).map(j => fromAshby(slug, j));
 }
 
-export async function loadGreenhouseDetail(job) {
+// Fetches the full description for listings that arrive without one
+// (Greenhouse lists, and internship-list links that point at Greenhouse, Lever or Ashby).
+const ashbyBoards = {};
+export async function loadDetail(job) {
   if (job.descLoaded) return job;
-  const j = await getJson(`https://boards-api.greenhouse.io/v1/boards/${job.slug}/jobs/${job.jobId}`);
-  job.desc = htmlToText(j.content);
+  const u = job.url || '';
+  let m;
+  if (job.ats === 'greenhouse' && job.slug) {
+    job.desc = htmlToText((await getJson(`https://boards-api.greenhouse.io/v1/boards/${job.slug}/jobs/${job.jobId}`)).content);
+  } else if ((m = u.match(/greenhouse\.io\/(?:embed\/job_app\?for=)?([\w-]+)\/jobs\/(\d+)/))) {
+    job.desc = htmlToText((await getJson(`https://boards-api.greenhouse.io/v1/boards/${m[1]}/jobs/${m[2]}`)).content);
+  } else if ((m = u.match(/jobs\.lever\.co\/([\w.-]+)\/([0-9a-f-]{36})/))) {
+    const j = await getJson(`https://api.lever.co/v0/postings/${m[1]}/${m[2]}`);
+    job.desc = [j.descriptionPlain, ...(j.lists || []).map(l => `${l.text}\n${htmlToText(l.content)}`), j.additionalPlain].filter(Boolean).join('\n');
+  } else if ((m = u.match(/jobs\.ashbyhq\.com\/([\w.%-]+)\/([0-9a-f-]{36})/))) {
+    ashbyBoards[m[1]] ??= getJson(`https://api.ashbyhq.com/posting-api/job-board/${m[1]}`);
+    const j = (await ashbyBoards[m[1]]).jobs.find(x => x.id === m[2]);
+    if (!j) return job;
+    job.desc = j.descriptionPlain || htmlToText(j.descriptionHtml);
+  } else {
+    return job;
+  }
   job.descLoaded = true;
   return job;
+}
+
+// Student-run internship lists (hundreds of companies, updated daily).
+const INTERN_LISTS = [
+  'https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json',
+  'https://raw.githubusercontent.com/vanshb03/Summer2027-Internships/dev/.github/scripts/listings.json',
+];
+const atsOf = url => /greenhouse\.io/.test(url) ? 'greenhouse' : /lever\.co/.test(url) ? 'lever' : /ashbyhq\.com/.test(url) ? 'ashby' : /myworkdayjobs/.test(url) ? 'workday' : 'company site';
+
+async function internLists() {
+  const out = [];
+  await pool(INTERN_LISTS, 2, async src => {
+    for (const j of await getJson(src, 45000)) {
+      if (!j.active || j.is_visible === false || !j.url) continue;
+      out.push({
+        id: `il-${j.id}`, ats: atsOf(j.url), company: j.company_name, title: j.title, location: (j.locations || []).join(' / '),
+        posted: (j.date_posted || 0) * 1000, url: j.url, applyUrl: j.url, desc: '', descLoaded: false,
+        term: (j.terms || [j.season]).filter(t => t && t !== 'N/A').join(', '), sponsorship: j.sponsorship || '', category: j.category || '',
+        degrees: j.degrees || [],
+      });
+    }
+  });
+  return out;
 }
 
 async function remoteFeeds(terms) {
@@ -98,52 +139,82 @@ export function titleMatcher(roles) {
   };
 }
 
+// Internships, co-ops and student programs go to their own tab, never to "Jobs".
+const INTERN_RE = /\b(interns?|internships?|co-?op|apprentice(ship)?|working student|student (researcher|worker|assistant|analyst|developer|engineer|program)|summer (analyst|associate|scholar)|werkstudent|praktikum|stagiaire)\b/i;
+export const isInternTitle = title => INTERN_RE.test(title);
+const GRAD_ONLY = /\b(ph\.?\s?d|doctoral|postdoc|master'?s|mba)\b/i;
+
+const GENERIC = new Set(['engineer', 'engineering', 'developer', 'analyst', 'manager', 'specialist', 'associate', 'assistant', 'coordinator', 'intern', 'internship', 'co-op', 'student', 'summer', 'junior', 'entry', 'level', 'new', 'grad']);
+const CATEGORY_HINTS = [[/software|developer|web|frontend|backend|full.?stack|mobile|swe/, /software/i], [/data|machine|learning|ml|ai|analyst|analytics|science/, /data|ai|ml/i], [/hardware|electrical|mechanical|embedded|firmware|chip|robotic/, /hardware/i], [/product/, /product/i], [/quant|trading|finance/, /quant/i]];
+
+// An internship matches when its title shares the field of a target role ("data analyst" -> "Data Science Intern").
+export function internMatcher(roles) {
+  const cleaned = roles.map(r => r.replace(INTERN_RE, '').trim()).filter(Boolean);
+  const exact = titleMatcher(cleaned);
+  const words = [...new Set(cleaned.flatMap(r => r.toLowerCase().split(/[\s/,-]+/)).filter(w => w.length > 1 && !STOP.has(w) && !GENERIC.has(w)))];
+  const cats = CATEGORY_HINTS.filter(([re]) => cleaned.some(r => re.test(r.toLowerCase()))).map(([, cat]) => cat);
+  return job => !cleaned.length || exact(job.title) || words.some(w => new RegExp(`\\b${w}`, 'i').test(job.title)) || (job.category && cats.some(c => c.test(job.category)));
+}
+
 const US_STATES = 'AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split(' ');
 const US_RE = new RegExp(`united states|\\busa?\\b|\\bu\\.s\\.|,\\s?(${US_STATES.join('|')})\\b|new york|san francisco|seattle|austin|boston|chicago|los angeles|denver|atlanta|miami|washington|bay area|silicon valley|remote - us|north america|americas`, 'i');
 
 // Remote roles tied to another country don't count as US.
 const NON_US = /europe|emea|\buk\b|united kingdom|london|germany|berlin|munich|hamburg|india|bangalore|bengaluru|canada|toronto|vancouver|latam|apac|brazil|poland|spain|madrid|barcelona|france|paris|netherlands|amsterdam|switzerland|zurich|zug|austria|vienna|ireland|dublin|portugal|lisbon|italy|sweden|stockholm|denmark|copenhagen|norway|finland|israel|tel aviv|singapore|japan|tokyo|australia|sydney|mexico|argentina|colombia|philippines|nigeria|kenya|south africa|dubai|uae/i;
 
+const CA_PROVINCE = /,\s?(ON|QC|BC|AB|MB|NS|NB|SK)\b|ontario|quebec|montr[eé]al|british columbia|alberta/;
+
 export function locationOk(job, where, places) {
   const loc = `${job.location} ${job.title}`;
   const remote = /remote|anywhere|distributed|work from home/i.test(loc);
   if (where === 'remote') return remote;
-  if (where === 'us') return US_RE.test(loc) || (remote && !NON_US.test(loc));
+  // Check each listed place on its own, so "Toronto, ON, CA" (Canada) doesn't pass as California.
+  if (where === 'us') return `${job.location}`.split(/\s*[/;|]\s*/).concat(job.location ? [] : [job.title]).some(part =>
+    /united states|\busa?\b|\bu\.s\./i.test(part) || (!NON_US.test(part) && !CA_PROVINCE.test(part) && (US_RE.test(part) || /remote|anywhere/i.test(part))));
   if (where === 'custom') return places.some(p => loc.toLowerCase().includes(p.toLowerCase())) || (remote && places.some(p => /remote/i.test(p)));
   return true;
 }
 
+// One pass over every source, split into two lanes: full-time jobs and internships for students.
 export async function searchJobs(prefs, extraBoards, onProgress) {
   const matchTitle = titleMatcher(prefs.roles);
-  const exclude = prefs.exclude.map(s => s.toLowerCase()).filter(Boolean);
+  const matchIntern = internMatcher(prefs.roles);
+  const exclude = prefs.exclude.map(s => s.toLowerCase()).filter(x => x && !INTERN_RE.test(x));
   const maxAge = prefs.ageDays * DAY;
-  const keep = j => {
-    const t = j.title.toLowerCase();
-    if (prefs.roles.length && !matchTitle(j.title)) return false;
-    if (exclude.some(x => t.includes(x))) return false;
-    if (j.posted && Date.now() - j.posted > maxAge) return false;
-    return locationOk(j, prefs.where, prefs.places);
-  };
+  // Internship recruiting runs months ahead, so that lane looks back at least 90 days.
+  const internAge = Math.max(prefs.ageDays, 90) * DAY;
+  const common = (j, age) => !exclude.some(x => j.title.toLowerCase().includes(x)) && !(j.posted && Date.now() - j.posted > age) && locationOk(j, prefs.where, prefs.places);
+  const keepJob = j => !isInternTitle(j.title) && (!prefs.roles.length || matchTitle(j.title)) && common(j, maxAge);
+  const keepIntern = j => (j.id.startsWith('il-') || isInternTitle(j.title)) && matchIntern(j)
+    && (prefs.gradStudent || !(GRAD_ONLY.test(j.title) || /\b(MS|M\.S\.|PhD)\b/.test(j.title) || j.degrees?.some(d => /phd|master/i.test(d)) && !j.degrees.some(d => /bachelor/i.test(d)))) && common(j, internAge);
 
   const boards = prefs.useAts ? [...COMPANIES, ...extraBoards] : extraBoards;
-  const seen = new Set();
-  const results = [];
+  const seen = new Set(), seenIntern = new Set();
+  const jobs = [], interns = [];
   let done = 0, scanned = 0;
-  const total = boards.length + (prefs.useRemote ? 1 : 0);
-  const tick = () => onProgress?.({ done: ++done, total, scanned, found: results.length });
-  const add = jobs => { scanned += jobs.length; for (const j of jobs) if (!seen.has(j.id) && keep(j)) { seen.add(j.id); results.push(j); } };
+  const total = boards.length + (prefs.useRemote ? 1 : 0) + (prefs.useInterns ? 1 : 0);
+  const tick = () => onProgress?.({ done: ++done, total, scanned, found: jobs.length, foundInterns: interns.length });
+  const internKey = j => `${j.company}|${j.title}`.toLowerCase().replace(/\W+/g, '');
+  const add = list => {
+    scanned += list.length;
+    for (const j of list) {
+      if (seen.has(j.id)) continue;
+      seen.add(j.id);
+      if (keepJob(j)) jobs.push({ ...j, lane: 'job' });
+      else if (keepIntern(j) && !seenIntern.has(internKey(j))) { seenIntern.add(internKey(j)); interns.push({ ...j, lane: 'intern' }); }
+    }
+  };
 
   await Promise.all([
     pool(boards, 14, async ([ats, slug]) => { try { add(await fetchBoard(ats, slug)); } finally { tick(); } }),
     prefs.useRemote ? remoteFeeds(prefs.roles).then(add).finally(tick) : null,
+    prefs.useInterns ? internLists().then(add).finally(tick) : null,
   ]);
 
-  // Greenhouse lists come without descriptions; fetch them for the matches only.
-  const need = results.filter(j => !j.descLoaded).sort((a, b) => b.posted - a.posted).slice(0, 250);
-  await pool(need, 10, loadGreenhouseDetail);
-  if (prefs.keywords.length) {
-    const kws = prefs.keywords.map(k => k.toLowerCase());
-    return { jobs: results.filter(j => kws.every(k => `${j.title} ${j.desc}`.toLowerCase().includes(k))), scanned };
-  }
-  return { jobs: results, scanned };
+  // Some listings come without descriptions; fetch them for the newest matches only.
+  const need = [...jobs, ...interns].filter(j => !j.descLoaded && /greenhouse|lever|ashby/.test(j.ats)).sort((a, b) => b.posted - a.posted).slice(0, 400);
+  await pool(need, 12, j => loadDetail(j));
+  const kws = prefs.keywords.map(k => k.toLowerCase());
+  const hasKws = j => kws.every(k => `${j.title} ${j.desc}`.toLowerCase().includes(k));
+  return { jobs: jobs.filter(hasKws), interns: kws.length ? interns.filter(j => !j.descLoaded || hasKws(j)) : interns, scanned };
 }

@@ -36,7 +36,7 @@
   <div class="hero-stats">
     <div><b>Direct</b><span>from company hiring systems, not reposted listings</span></div>
     <div><b>1–5</b><span>fit score on every job, with the reasons</span></div>
-    <div><b>1 click</b><span>tailored resume PDF per job</span></div>
+    <div><b>🎓 Students</b><span>a separate internships tab, matched to your class year</span></div>
   </div>
 </section>
 
@@ -55,6 +55,7 @@
     <button class="tab active" data-tab="resume" role="tab">1 · Resume</button>
     <button class="tab" data-tab="prefs" role="tab">2 · What you want</button>
     <button class="tab" data-tab="jobs" role="tab">3 · Jobs <span id="jobsBadge" class="badge" hidden></span></button>
+    <button class="tab" data-tab="interns" role="tab">🎓 College internships <span id="internsBadge" class="badge" hidden></span></button>
     <button class="tab" data-tab="queue" role="tab">4 · Apply <span id="queueBadge" class="badge" hidden></span></button>
     <button class="tab" data-tab="panel" role="tab">5 · Resume panel</button>
   </div>
@@ -104,12 +105,13 @@
           <label>Exclude titles with<input id="fExclude" placeholder="senior, staff, manager"></label>
           <label>Where<select id="fWhere"><option value="any">Anywhere</option><option value="remote">Remote only</option><option value="us">United States (incl. remote US)</option><option value="custom">Specific places…</option></select></label>
           <label id="fPlacesWrap" hidden>Places <small>(comma separated)</small><input id="fPlaces" placeholder="New York, San Francisco, Austin"></label>
-          <label>Level<select id="fLevel"><option value="auto">Match my resume</option><option value="intern">Internship</option><option value="entry">Entry / new grad</option><option value="mid">Mid</option><option value="senior">Senior+</option></select></label>
+          <label>Level<select id="fLevel"><option value="auto">Match my resume</option><option value="entry">Entry / new grad</option><option value="mid">Mid</option><option value="senior">Senior+</option></select></label>
           <label>Posted within<select id="fAge"><option value="3">3 days</option><option value="7">7 days</option><option value="14" selected>14 days</option><option value="30">30 days</option><option value="9999">Any time</option></select></label>
         </div>
         <div class="checks">
           <label><input type="checkbox" id="srcAts" checked> Company career pages (<span class="cc">190+</span> employers)</label>
           <label><input type="checkbox" id="srcRemote" checked> Remote job feeds (Remotive, Jobicy, Arbeitnow)</label>
+          <label><input type="checkbox" id="srcInterns" checked> College internship lists (SimplifyJobs and more)</label>
         </div>
         <button class="btn btn-big" id="runSearch">Find my jobs</button>
       </div>
@@ -141,6 +143,25 @@
       </div>
     </div>
     <div id="jobList" class="job-list"></div>
+  </div>
+
+  <!-- College internships -->
+  <div class="pane" id="pane-interns">
+    <div class="intern-intro">
+      <h3>Internships for college students only</h3>
+      <p class="muted small">No full-time jobs here: only internships, co-ops and student programs, scored on whether <em>a student like you</em> can get them: your graduation year, degree level, GPA, field and skills. Sourced from company job boards plus the student-run SimplifyJobs internship lists (thousands of openings, updated daily).</p>
+    </div>
+    <div class="jobs-head">
+      <div id="internStatus" class="muted">Run a search from step 2. Internships are found in the same search.</div>
+      <div class="filters">
+        <label>Min score <select id="internMin"><option value="1">All</option><option value="3" selected>3+</option><option value="4">4+</option><option value="4.5">4.5+</option></select></label>
+        <label>Term <select id="internTerm"><option value="">Any</option><option value="summer">Summer</option><option value="fall">Fall</option><option value="spring">Spring</option><option value="winter">Winter</option></select></label>
+        <label>Sort <select id="internSort"><option value="score">Best fit</option><option value="new">Newest</option></select></label>
+        <input id="internFilter" placeholder="Filter internships…">
+        <button class="btn btn-small" id="queueInterns">Queue all 4+</button>
+      </div>
+    </div>
+    <div id="internList" class="job-list"></div>
   </div>
 
   <!-- 4. Queue -->
@@ -199,6 +220,7 @@
       <tr><td>Fit score on every job</td><td class="yes">1–5 with reasons</td><td class="no">Limited</td><td>Sometimes</td></tr>
       <tr><td>Resume tailored per job</td><td class="yes">Yes, with keyword report</td><td class="no">No</td><td>Usually generic</td></tr>
       <tr><td>Tailored PDF per job</td><td class="yes">Yes</td><td class="no">No</td><td>Sometimes</td></tr>
+      <tr><td>Internship-only feed for students</td><td class="yes">Yes, scored on class year and GPA</td><td>Mixed in with full-time jobs</td><td class="no">Rarely</td></tr>
       <tr><td>Tells you to skip bad fits</td><td class="yes">Yes, below 4/5</td><td class="no">No</td><td class="no">No, it sprays everything</td></tr>
       <tr><td>Price</td><td class="yes">Free</td><td>Premium is paid</td><td>$30–$100/month</td></tr>
       <tr><td>Your data</td><td class="yes">Stays in your browser</td><td>Their servers</td><td>Their servers</td></tr>

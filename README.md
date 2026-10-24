@@ -8,7 +8,8 @@ ReverseApply is a free website that turns one resume into a stack of tailored, r
 2. **Search at the source.** ReverseApply queries ~200 employers' own hiring systems (Greenhouse, Lever, Ashby) plus remote job feeds in parallel, so you see postings as soon as companies publish them. Paste any company's board link to add it.
 3. **Every job is scored 1–5** on title, skills, seniority, freshness, visa and clearance requirements, with the reasons. 5/5 = apply now; below 4 = we tell you to skip.
 4. **Tailored resume per job.** Your resume is reordered around the keywords each posting asks for, you tick any missing keywords you genuinely have, and it's exported as a clean, ATS-friendly PDF, with application answers and a cover letter.
-5. **Autopilot** fills the applications for you from an exported pack (see below).
+5. **🎓 College internships tab.** Internships, co-ops and student programs are split out from full-time jobs into their own tab, pulled from company job boards plus the student-run [SimplifyJobs](https://github.com/SimplifyJobs/Summer2027-Internships) lists. They're scored on *student fit*: your graduation year vs. the class they want, undergrad vs. master's/PhD-only roles, GPA minimums, field and skills. Tailored resumes for internships put Education first and lead with your school and class year.
+6. **Autopilot** fills the applications for you from an exported pack (see below).
 
 Optional **AI boost** with your own Anthropic API key: the 7-reviewer resume panel (screening bot, recruiter, hiring manager, teammate, CEO, competing applicant, HR) that tries to reject your resume and then rebuilds it, plus per-job AI rewrites, fit scores and cover letters.
 

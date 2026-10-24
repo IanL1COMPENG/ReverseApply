@@ -1,7 +1,7 @@
 import { COMPANIES } from './companies.js';
 import { readResumeFile, parseResume } from './resume.js';
-import { searchJobs, parseBoardLinks, loadGreenhouseDetail } from './search.js';
-import { scoreJob, scoreClass } from './score.js';
+import { searchJobs, parseBoardLinks, loadDetail } from './search.js';
+import { scoreJob, scoreInternship, scoreClass } from './score.js';
 import { tailorResume, resumePdf, resumeText, coverLetter, applicationAnswers } from './tailor.js';
 import { pretty } from './skills.js';
 import { runPanel, aiTailor } from './ai.js';
@@ -22,6 +22,7 @@ const state = {
   profile: store.get('profile', {}),
   prefs: store.get('prefs', null),
   jobs: store.get('jobs', []),
+  interns: store.get('interns', []),
   queue: store.get('queue', []),
   tracker: store.get('tracker', []),
   edits: store.get('edits', {}),     // jobId -> edited resume text
@@ -101,14 +102,16 @@ function readPrefs() {
   return {
     roles: splitList($('#fRoles').value), keywords: splitList($('#fKeywords').value), exclude: splitList($('#fExclude').value),
     where: $('#fWhere').value, places: splitList($('#fPlaces').value), level: $('#fLevel').value, ageDays: +$('#fAge').value,
-    useAts: $('#srcAts').checked, useRemote: $('#srcRemote').checked, extra: $('#extraBoards').value,
-    needsSponsor: /sponsor/i.test($('#pAuth').value),
+    useAts: $('#srcAts').checked, useRemote: $('#srcRemote').checked, useInterns: $('#srcInterns').checked, extra: $('#extraBoards').value,
+    needsSponsor: /sponsor/i.test($('#pAuth').value), otherCountry: /other country/i.test($('#pAuth').value),
+    gradStudent: !!state.parsed?.education?.gradStudent,
   };
 }
 function writePrefs(p) {
   $('#fRoles').value = p.roles.join(', '); $('#fKeywords').value = p.keywords.join(', '); $('#fExclude').value = p.exclude.join(', ');
   $('#fWhere').value = p.where; $('#fPlaces').value = p.places.join(', '); $('#fLevel').value = p.level; $('#fAge').value = String(p.ageDays);
-  $('#srcAts').checked = p.useAts; $('#srcRemote').checked = p.useRemote; $('#extraBoards').value = p.extra || '';
+  $('#srcAts').checked = p.useAts; $('#srcRemote').checked = p.useRemote; $('#srcInterns').checked = p.useInterns !== false; $('#extraBoards').value = p.extra || '';
+  if (p.level === 'intern') $('#fLevel').value = 'auto';
   $('#fPlacesWrap').hidden = p.where !== 'custom';
 }
 $('#fWhere').addEventListener('change', e => ($('#fPlacesWrap').hidden = e.target.value !== 'custom'));
@@ -132,12 +135,15 @@ $('#runSearch').addEventListener('click', async () => {
   $('#progress').hidden = false;
   const started = performance.now();
   try {
-    const { jobs, scanned } = await searchJobs(prefs, parseBoardLinks(prefs.extra), p => {
+    const { jobs, interns, scanned } = await searchJobs(prefs, parseBoardLinks(prefs.extra), p => {
       $('#progress div').style.width = `${(p.done / p.total) * 100}%`;
-      $('#searchStatus').textContent = `Searching ${p.done}/${p.total} sources · ${p.scanned.toLocaleString()} openings read · ${p.found} match so far`;
+      $('#searchStatus').textContent = `Searching ${p.done}/${p.total} sources · ${p.scanned.toLocaleString()} openings read · ${p.found} jobs and ${p.foundInterns} internships match so far`;
+      $('#internStatus').textContent = $('#searchStatus').textContent;
     });
-    rescore(jobs);
-    $('#searchStatus').textContent = `Read ${scanned.toLocaleString()} openings from ${COMPANIES.length + 3} sources in ${((performance.now() - started) / 1000).toFixed(1)}s · ${jobs.length} match your search · ${jobs.filter(j => j.fit.score >= 4).length} scored 4+`;
+    rescore(jobs, interns);
+    const secs = ((performance.now() - started) / 1000).toFixed(1);
+    $('#searchStatus').textContent = `Read ${scanned.toLocaleString()} openings in ${secs}s · ${jobs.length} full-time jobs match · ${jobs.filter(j => j.fit.score >= 4).length} scored 4+ · internships are in their own tab`;
+    $('#internStatus').textContent = `${interns.length} internships match your field · ${interns.filter(j => j.fit.score >= 4).length} scored 4+ for a student graduating ${state.parsed.education?.gradYear || '(add your graduation year to your resume)'}`;
   } catch (e) {
     $('#searchStatus').textContent = `Search failed: ${e.message}`;
   } finally {
@@ -145,17 +151,21 @@ $('#runSearch').addEventListener('click', async () => {
   }
 });
 
-function rescore(jobs = state.jobs) {
-  const resume = { ...state.parsed, text: state.resume };
-  const prefs = state.prefs || readPrefs();
-  for (const j of jobs) j.fit = scoreJob(j, resume, prefs);
+const fitFor = job => (job.lane === 'intern' ? scoreInternship : scoreJob)(job, { ...state.parsed, text: state.resume }, state.prefs || readPrefs());
+
+function rescore(jobs = state.jobs, interns = state.interns) {
+  for (const j of [...jobs, ...interns]) j.fit = fitFor(j);
   state.jobs = jobs;
+  state.interns = interns;
   saveJobs();
   renderJobs();
+  renderInterns();
 }
 
 function saveJobs() {
-  store.set('jobs', [...state.jobs].sort((a, b) => b.fit.score - a.fit.score).slice(0, 400).map(j => ({ ...j, desc: j.desc.slice(0, 9000) })));
+  const slim = list => [...list].sort((a, b) => b.fit.score - a.fit.score).slice(0, 300).map(j => ({ ...j, desc: j.desc.slice(0, 7000) }));
+  store.set('jobs', slim(state.jobs));
+  store.set('interns', slim(state.interns));
 }
 
 const ago = t => {
@@ -169,7 +179,7 @@ function jobCard(j, inQueue) {
     <div class="score ${scoreClass(j.fit.score)}">${j.fit.score.toFixed(1)}<small>/ 5</small></div>
     <div>
       <h4>${esc(j.title)}</h4>
-      <div class="meta"><b>${esc(j.company)}</b><span>${esc(j.location || '—')}</span><span>${ago(j.posted)}</span><span>${esc(j.ats)}</span></div>
+      <div class="meta">${j.lane === 'intern' ? `<span class="tag">${esc(j.term || 'Internship')}</span>` : ''}<b>${esc(j.company)}</b><span>${esc(j.location || '—')}</span><span>${ago(j.posted)}</span><span>${esc(j.ats)}</span></div>
       <div class="why"><b>${esc(j.fit.verdict)}</b> · ${esc([...j.fit.reasons.slice(1, 2), ...j.fit.flags].join(' · '))}${j.fit.label ? ` · matches ${esc(j.fit.label)}` : ''}</div>
     </div>
     <div class="acts">
@@ -192,14 +202,35 @@ function renderJobs() {
 ['#minScore', '#sortBy'].forEach(s => $(s).addEventListener('change', renderJobs));
 $('#jobFilter').addEventListener('input', renderJobs);
 
+function renderInterns() {
+  const min = +$('#internMin').value, q = $('#internFilter').value.toLowerCase(), term = $('#internTerm').value, sort = $('#internSort').value;
+  const list = state.interns.filter(j => j.fit.score >= min && (!term || (j.term || j.title).toLowerCase().includes(term)) && (!q || `${j.title} ${j.company} ${j.location}`.toLowerCase().includes(q)))
+    .sort(sort === 'new' ? (a, b) => b.posted - a.posted : (a, b) => b.fit.score - a.fit.score || b.posted - a.posted);
+  $('#internList').innerHTML = list.slice(0, 200).map(j => jobCard(j)).join('') || `<div class="empty">${state.interns.length ? 'No internships at this score or term. Lower the minimum score or pick "Any" term.' : 'Internships matched to your resume show up here after you search.'}</div>`;
+  if (list.length > 200) $('#internList').insertAdjacentHTML('beforeend', `<p class="muted small center">Showing the top 200 of ${list.length}.</p>`);
+  $('#internsBadge').hidden = !state.interns.length; $('#internsBadge').textContent = state.interns.filter(j => j.fit.score >= 4).length;
+}
+['#internMin', '#internTerm', '#internSort'].forEach(s => $(s).addEventListener('change', renderInterns));
+$('#internFilter').addEventListener('input', renderInterns);
+$('#queueInterns').addEventListener('click', () => {
+  const top = state.interns.filter(j => j.fit.score >= 4);
+  if (!top.length) return toast('No 4+ internships yet.');
+  addToQueue(top);
+  renderInterns();
+  toast(`${top.length} internships queued. Open step 4 to apply.`);
+});
+
+const findJob = id => state.jobs.find(j => j.id === id) || state.interns.find(j => j.id === id);
+const renderAll = () => { renderJobs(); renderInterns(); };
+
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   const id = b.closest('[data-id]')?.dataset.id;
-  const job = state.jobs.find(j => j.id === id);
+  const job = findJob(id);
   if (b.dataset.act === 'kit' && job) openKit(job);
   if (b.dataset.act === 'queue' && job) { addToQueue([job]); b.textContent = 'Queued ✓'; }
-  if (b.dataset.act === 'unqueue') { state.queue = state.queue.filter(q => q !== id); store.set('queue', state.queue); renderQueue(); renderJobs(); }
+  if (b.dataset.act === 'unqueue') { state.queue = state.queue.filter(q => q !== id); store.set('queue', state.queue); renderQueue(); renderAll(); }
 });
 
 $('#queueTop').addEventListener('click', () => {
@@ -237,12 +268,13 @@ function textToDoc(text) {
 const fileName = job => `${(state.profile.name || 'Resume').replace(/\s+/g, '_')}_${job.company.replace(/\W+/g, '')}.pdf`;
 
 async function openKit(job) {
-  if (!job.descLoaded && job.ats === 'greenhouse') {
-    try { await loadGreenhouseDetail(job); job.fit = scoreJob(job, { ...state.parsed, text: state.resume }, state.prefs || readPrefs()); saveJobs(); } catch { /* fall back to title-only */ }
+  if (!job.descLoaded) {
+    try { await loadDetail(job); if (job.descLoaded) { job.fit = fitFor(job); saveJobs(); } } catch { /* fall back to title-only */ }
   }
   const f = job.fit;
+  const edu = state.parsed.education || {};
   const doc = docFor(job);
-  const answers = applicationAnswers(state.profile, job, f);
+  const answers = applicationAnswers(state.profile, job, f, edu);
   const bar = (label, v) => `<div class="bar"><span>${label}</span><i><b style="width:${Math.round(v * 100)}%"></b></i><span>${Math.round(v * 100)}%</span></div>`;
   $('#modalBody').innerHTML = `
     <div class="row" style="margin:0 0 14px;align-items:flex-start">
@@ -253,7 +285,7 @@ async function openKit(job) {
     <div class="kit-grid">
       <div>
         <h4>Why this score</h4>
-        <div class="breakdown">${bar('Title', f.parts.title)}${bar('Skills', f.parts.skills)}${bar('Level', f.parts.seniority)}${bar('Freshness', f.parts.fresh)}</div>
+        <div class="breakdown">${bar(f.student ? 'Field' : 'Title', f.parts.title)}${bar('Skills', f.parts.skills)}${bar(f.student ? 'Student fit' : 'Level', f.parts.seniority)}${bar('Freshness', f.parts.fresh)}</div>
         <ul class="small">${[...f.reasons, ...f.flags].map(r => `<li>${esc(r)}</li>`).join('')}</ul>
         <h4>Keywords you already have <span class="muted">(moved to the top of your resume)</span></h4>
         <div class="chips">${f.matched.map(s => `<span class="chip hit">${esc(pretty(s))}</span>`).join('') || '<span class="muted small">None detected.</span>'}</div>
@@ -263,7 +295,7 @@ async function openKit(job) {
         <h4>Application answers</h4>
         <div class="small">${Object.entries(answers).map(([k, v]) => `<div class="check-item"><span style="flex:1"><b>${esc(k)}:</b> ${esc(v || '—')}</span><button class="btn btn-small btn-ghost" data-copy="${esc(v)}">Copy</button></div>`).join('')}</div>
         <h4>Cover letter</h4>
-        <textarea id="kitCover" rows="9">${esc(state.edits['cover:' + job.id] || coverLetter(state.profile, job, f))}</textarea>
+        <textarea id="kitCover" rows="9">${esc(state.edits['cover:' + job.id] || coverLetter(state.profile, job, f, edu))}</textarea>
       </div>
       <div>
         <h4>Your tailored resume <span class="muted">(edit freely)</span></h4>
@@ -331,7 +363,7 @@ $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') $('#mo
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modal').hidden = true; });
 
 // ---------- queue, autopilot pack, tracker ----------
-function queueJobs() { return state.queue.map(id => state.jobs.find(j => j.id === id)).filter(Boolean); }
+function queueJobs() { return state.queue.map(findJob).filter(Boolean); }
 
 function renderQueue() {
   const jobs = queueJobs();
@@ -349,8 +381,8 @@ $('#exportPack').addEventListener('click', () => {
     jobs: jobs.map(j => ({
       company: j.company, title: j.title, ats: j.ats, url: j.url, applyUrl: j.applyUrl, score: j.fit.score,
       resumeFile: fileName(j), resumePdfBase64: pdfBase64(j),
-      coverLetter: state.edits['cover:' + j.id] || coverLetter(state.profile, j, j.fit),
-      answers: applicationAnswers(state.profile, j, j.fit),
+      coverLetter: state.edits['cover:' + j.id] || coverLetter(state.profile, j, j.fit, state.parsed.education),
+      answers: applicationAnswers(state.profile, j, j.fit, state.parsed.education),
     })),
   };
   download(new Blob([JSON.stringify(pack)], { type: 'application/json' }), 'reverseapply-pack.json');
@@ -365,7 +397,7 @@ $('#downloadAll').addEventListener('click', async () => {
   for (const j of jobs) zip.file(fileName(j), pdfBase64(j), { base64: true });
   download(await zip.generateAsync({ type: 'blob' }), 'tailored-resumes.zip');
 });
-$('#clearQueue').addEventListener('click', () => { state.queue = []; store.set('queue', []); renderQueue(); renderJobs(); });
+$('#clearQueue').addEventListener('click', () => { state.queue = []; store.set('queue', []); renderQueue(); renderAll(); });
 
 function download(blob, name) {
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
@@ -430,7 +462,7 @@ $('#runPanel').addEventListener('click', async () => {
     out.querySelector('p').innerHTML = `<b>${passes} of 7 would pass you.</b> Here's your rebuilt resume with every issue fixed:`;
     out.insertAdjacentHTML('beforeend', `<textarea id="improved" rows="20" class="mt">${esc(improved)}</textarea>
       <div class="row"><button class="btn" id="useImproved">Use as my resume</button><button class="btn btn-ghost" id="pdfImproved">Download PDF</button></div>`);
-    $('#useImproved').onclick = () => { $('#resumeText').value = $('#improved').value; applyResume($('#improved').value, false); state.edits = {}; store.set('edits', {}); if (state.jobs.length) rescore(); toast('Resume updated. Scores refreshed.'); };
+    $('#useImproved').onclick = () => { $('#resumeText').value = $('#improved').value; applyResume($('#improved').value, false); state.edits = {}; store.set('edits', {}); if (state.jobs.length || state.interns.length) rescore(); toast('Resume updated. Scores refreshed.'); };
     $('#pdfImproved').onclick = () => resumePdf(textToDoc($('#improved').value)).save('Resume_improved.pdf');
   } catch (e) { out.innerHTML = `<p class="small" style="color:var(--bad)">${esc(e.message)}</p>`; }
   btn.disabled = false;
@@ -451,5 +483,6 @@ if (state.prefs) writePrefs(state.prefs);
 if (state.key) { $('#apiKey').value = state.key; $('#keyStatus').textContent = 'Key saved in this browser.'; }
 $('#apiModel').value = state.model;
 if (state.jobs.length && state.parsed) { renderJobs(); $('#searchStatus').textContent = `${state.jobs.length} jobs from your last search. Run it again for the newest.`; }
+if (state.interns.length && state.parsed) { renderInterns(); $('#internStatus').textContent = `${state.interns.length} internships from your last search. Run it again for the newest.`; }
 renderQueue();
 renderTracker();
