@@ -66,8 +66,53 @@ const HEADINGS = {
   awards: /^(awards|honors|achievements|honors & awards)$/i,
 };
 
+// Text copied out of a PDF viewer often drops the right-hand column (locations, dates) as a block further
+// down, e.g. "Columbus, OH / December 2028 / Brookville, OH / January 2026-Present" inside Work Experience.
+// Put the education entry's location and date back on its school line so the graduation date is read
+// from where it belongs; the other column lines stay where they are.
+const LOC_LINE = /^(?:[A-Z][A-Za-z .'-]+,\s?(?:[A-Z]{2}|[A-Z][a-z]+)|Remote|Hybrid)$/;
+const DATE_LINE = new RegExp(`^(?:expected:?\\s*)?${'(?:(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?|Spring|Summer|Fall|Autumn|Winter)\\s+)?(?:19|20)\\d{2}'}(?:\\s*(?:-|–|—|to)\\s*(?:(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?|Spring|Summer|Fall|Autumn|Winter)\\s+)?(?:(?:19|20)\\d{2}|present|current|now))?$`, 'i');
+export function reattachColumnDates(lines) {
+  lines = lines.filter(l => !/^\s*[•▪◦●■►‣]\s*$/.test(l)); // lone bullet glyphs left behind by copy-paste
+  const isHeading = (l, re) => re.test(l.replace(/[:|]+$/, '').trim());
+  const sectionAt = lines.map(l => Object.keys(HEADINGS).find(k => l.trim().length < 40 && isHeading(l, HEADINGS[k])));
+  const eduHead = sectionAt.indexOf('education');
+  const school = lines.findIndex((l, i) => i > eduHead && SCHOOL_RE.test(l));
+  if (school < 0) return lines;
+  // Already has a date on the school line or the two lines under it: nothing to fix.
+  const own = [school, school + 1, school + 2].filter(i => i < lines.length && !sectionAt[i] && !NOT_GRAD.test(lines[i])).map(i => lines[i]).join(' ');
+  if (/(?:19|20)\d{2}/.test(own)) return lines;
+  // Find the first run of 2+ consecutive location/date-only lines (with at least one date) after the school line.
+  const isCol = i => LOC_LINE.test(lines[i].trim()) || DATE_LINE.test(lines[i].trim());
+  let start = -1, end = -1;
+  for (let i = school + 1; i < lines.length && end < 0; i++) {
+    if (!isCol(i)) continue;
+    let j = i;
+    while (j + 1 < lines.length && isCol(j + 1)) j++;
+    if (j > i && lines.slice(i, j + 1).some(l => DATE_LINE.test(l.trim()))) { start = i; end = j; }
+    i = j;
+  }
+  if (start < 0) return lines;
+  // Split the run into records: [location?, date].
+  const records = [];
+  let rec = null;
+  for (let i = start; i <= end; i++) {
+    const t = lines[i].trim();
+    if (LOC_LINE.test(t)) { rec = { idx: [i], loc: t }; records.push(rec); }
+    else { if (!rec || rec.date) { rec = { idx: [], loc: '' }; records.push(rec); } rec.idx.push(i); rec.date = t; }
+  }
+  // Column values come in document order: if Education is the first data section, its record is first;
+  // otherwise use the first single date (a graduation date, not a job's "2025 - Present" range).
+  const sections = sectionAt.filter(k => ['education', 'experience', 'projects', 'leadership'].includes(k));
+  const pick = sections[0] === 'education' ? records.find(r => r.date) : records.find(r => r.date && !/(?:-|–|—|to)/.test(r.date));
+  if (!pick) return lines;
+  const out = lines.slice();
+  out[school] = `${lines[school]}${pick.loc ? ` | ${pick.loc}` : ''} | ${pick.date}`;
+  return out.filter((_, i) => !pick.idx.includes(i));
+}
+
 export function parseResume(text) {
-  const lines = text.split('\n');
+  const lines = reattachColumnDates(text.split('\n'));
   const profile = {
     name: guessName(lines),
     email: (text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || [''])[0],
