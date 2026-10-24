@@ -126,6 +126,9 @@
           <label>Model<select id="apiModel"><option value="claude-sonnet-5-5">Claude Sonnet 5.5 (best value)</option><option value="claude-opus-5-5">Claude Opus 5.5 (strongest)</option><option value="claude-haiku-5-5">Claude Haiku 5.5 (fastest)</option></select></label>
         </div>
         <div class="row"><button class="btn btn-ghost" id="saveKey">Save key</button><button class="btn btn-ghost" id="clearKey">Forget key</button><span id="keyStatus" class="muted small"></span></div>
+        <h3 class="mt">Faster posting reader <span class="pill">optional</span></h3>
+        <p class="muted small">Scores use each job's full description. Postings on Workday and company career sites are read through the free <a href="https://jina.ai/reader" target="_blank" rel="noopener">Jina Reader</a> at about 18 a minute. Paste a free Jina API key to read hundreds a minute. Stored only in this browser.</p>
+        <div class="form"><label>Jina API key<input id="readerKey" type="password" placeholder="jina_..." autocomplete="off"></label></div>
       </div>
     </div>
   </div>
@@ -135,6 +138,7 @@
     <div class="jobs-head">
       <div id="searchStatus" class="muted">Run a search from step 2.</div>
       <div class="progress" id="progress" hidden><div></div></div>
+      <div class="read-status small" hidden></div>
       <div class="filters">
         <label>Min score <select id="minScore"><option value="1">All</option><option value="3">3+</option><option value="4" selected>4+</option><option value="4.5">4.5+</option></select></label>
         <label>Sort <select id="sortBy"><option value="score">Best fit</option><option value="new">Newest</option></select></label>
@@ -153,6 +157,7 @@
     </div>
     <div class="jobs-head">
       <div id="internStatus" class="muted">Run a search from step 2. Internships are found in the same search.</div>
+      <div class="read-status small" hidden></div>
       <div class="filters">
         <label>Min score <select id="internMin"><option value="1">All</option><option value="3" selected>3+</option><option value="4">4+</option><option value="4.5">4.5+</option></select></label>
         <label>Term <select id="internTerm"><option value="">Any</option><option value="summer">Summer</option><option value="fall">Fall</option><option value="spring">Spring</option><option value="winter">Winter</option></select></label>

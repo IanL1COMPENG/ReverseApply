@@ -62,7 +62,7 @@ export function scoreJob(job, resume, prefs) {
 
   if (prefs.needsSponsor && /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor/i.test(job.desc)) { score = Math.min(score, 1.8); flags.push('Says it will not sponsor visas'); }
   if (/(security|secret|ts\/sci) clearance (is )?required|active (secret|ts\/sci|top secret)/i.test(job.desc) && !/clearance/i.test(resume.text)) { score = Math.min(score, 2.4); flags.push('Requires a security clearance'); }
-  if (!job.descLoaded) flags.push('Score based on title only; open it for the full read');
+  if (!job.descLoaded) flags.push(titleOnlyNote(job));
 
   score = Math.round(Math.min(5, Math.max(1, score)) * 10) / 10;
   return {
@@ -85,6 +85,18 @@ function skillFit(text, job, resume) {
   let skills = want.length >= 3 ? Math.min(1, Math.pow(gotW / totalW, 0.75) * 1.08) : 0.65;
   if (!job.descLoaded) skills = 0.6;
   return { skills, matched, missing, want };
+}
+
+const titleOnlyNote = job => job.readFailed
+  ? 'Scored on title only: this site blocks automatic reading, so open the posting to check it'
+  : 'Scored on title only so far: the full posting is being read in the background';
+
+// "Minimum: Master or PhD graduate candidates", "must be pursuing a PhD": a sentence that requires a graduate
+// degree and never mentions undergraduates.
+function gradOnlyText(desc = '') {
+  return desc.split(/(?<=[.!?\n])\s+/).some(s =>
+    /\b(minimum|must|required|only|currently (enrolled|pursuing)|pursuing)\b/i.test(s) && /\b(master'?s?|m\.s\.|ph\.?\s?d|doctoral|graduate (student|candidate|degree)s?)\b/i.test(s)
+    && !/\b(bachelor'?s?|b\.?s\.?|b\.?a\.?|undergrad\w*|or above|or higher)\b/i.test(s));
 }
 
 const CLASS_WORDS = { freshman: 'freshmen', sophomore: 'sophomores', 'rising junior': 'rising juniors', junior: 'juniors', 'rising senior': 'rising seniors', senior: 'seniors' };
@@ -114,7 +126,7 @@ export function scoreInternship(job, resume, prefs) {
   else if (grad && wantYears.length && !wantYears.includes(grad)) { student = 0.3; cap = 2.9; flags.push(`Wants students graduating ${wantYears.join(' or ')}; you graduate ${grad}`); }
   else if (grad && wantYears.includes(grad)) reasons.push(`Looking for the class of ${grad}: that's you`);
   else if (grad) reasons.push(`Open to students; you graduate ${grad}`);
-  if (!edu.gradStudent && (/\b(ph\.?\s?d|doctoral|master'?s (student|candidate|program))\b/i.test(job.title) || /\b(MS|M\.S\.|PhD)\b/.test(job.title) || /currently (enrolled|pursuing) (in )?a (ph\.?d|master)/i.test(job.desc))) { student = Math.min(student, 0.25); cap = Math.min(cap, 2.5); flags.push('Meant for graduate students'); }
+  if (!edu.gradStudent && (/\b(ph\.?\s?d|doctoral|master'?s (student|candidate|program))\b/i.test(job.title) || /\b(MS|M\.S\.|PhD)\b/.test(job.title) || gradOnlyText(job.desc))) { student = Math.min(student, 0.25); cap = Math.min(cap, 2.5); flags.push('Meant for graduate students'); }
   const cls = Object.keys(CLASS_WORDS).find(c => new RegExp(`\\b${c}s?\\b`, 'i').test(job.desc || ''));
   if (cls) reasons.push(`Open to ${CLASS_WORDS[cls]}`);
   const gpaMin = +((job.desc || '').match(/(?:minimum|min\.?|at least)[^.\n]{0,20}?([23]\.\d)\s*(?:\/\s*4\.0\s*)?gpa|gpa[^.\n]{0,20}?(?:of|minimum)?\s*([23]\.\d)\s*(?:or (?:higher|above)|\+)/i) || []).slice(1).find(Boolean) || 0;
@@ -137,7 +149,7 @@ export function scoreInternship(job, resume, prefs) {
     score = Math.min(score, 1.8); flags.push(job.sponsorship ? `${job.sponsorship}` : 'Will not sponsor visas');
   } else if (/citizenship is required/i.test(job.sponsorship)) flags.push('U.S. citizens only');
   // Without the posting text we can't check skills or class year, so it can't earn a 4+ yet.
-  if (!job.descLoaded) { score = Math.min(score, 3.9); flags.push('Scored on title only: open it to read the posting and get the full score'); }
+  if (!job.descLoaded) { score = Math.min(score, 3.9); flags.push(titleOnlyNote(job)); }
 
   score = Math.round(Math.min(5, Math.max(1, score)) * 10) / 10;
   return {

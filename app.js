@@ -1,6 +1,6 @@
 import { COMPANIES } from './companies.js';
 import { readResumeFile, parseResume } from './resume.js';
-import { searchJobs, parseBoardLinks, loadDetail } from './search.js';
+import { searchJobs, parseBoardLinks, loadDetail, setReaderKey } from './search.js';
 import { scoreJob, scoreInternship, scoreClass } from './score.js';
 import { tailorResume, resumePdf, resumeText, coverLetter, applicationAnswers } from './tailor.js';
 import { pretty } from './skills.js';
@@ -30,7 +30,9 @@ const state = {
   extras: store.get('extras', {}),   // jobId -> skills the user confirmed they have
   key: store.get('key', ''),
   model: store.get('model', 'claude-sonnet-5-5'),
+  readerKey: store.get('readerKey', ''),
 };
+setReaderKey(state.readerKey);
 
 function toast(msg, ms = 3200) {
   const t = $('#toast');
@@ -123,6 +125,7 @@ $('#saveKey').addEventListener('click', () => {
   $('#keyStatus').textContent = state.key ? 'Saved in this browser.' : '';
 });
 $('#clearKey').addEventListener('click', () => { state.key = ''; $('#apiKey').value = ''; store.set('key', ''); $('#keyStatus').textContent = 'Forgotten.'; });
+$('#readerKey').addEventListener('change', e => { state.readerKey = e.target.value.trim(); store.set('readerKey', state.readerKey); setReaderKey(state.readerKey); toast(state.readerKey ? 'Reader key saved: postings will be read much faster.' : 'Reader key removed.'); });
 $('#apiModel').addEventListener('change', e => { state.model = e.target.value; store.set('model', state.model); });
 
 // ---------- search ----------
@@ -136,21 +139,56 @@ $('#runSearch').addEventListener('click', async () => {
   $('#progress').hidden = false;
   const started = performance.now();
   try {
+    readGen++; // stop any background reading from a previous search
     const { jobs, interns, scanned } = await searchJobs(prefs, parseBoardLinks(prefs.extra), p => {
       $('#progress div').style.width = `${(p.done / p.total) * 100}%`;
-      $('#searchStatus').textContent = `Searching ${p.done}/${p.total} sources · ${p.scanned.toLocaleString()} openings read · ${p.found} jobs and ${p.foundInterns} internships match so far`;
+      $('#searchStatus').textContent = `${p.phase || `Searching ${p.done}/${p.total} sources`} · ${p.scanned.toLocaleString()} openings read · ${p.found} jobs and ${p.foundInterns} internships match so far`;
       $('#internStatus').textContent = $('#searchStatus').textContent;
     });
     rescore(jobs, interns);
     const secs = ((performance.now() - started) / 1000).toFixed(1);
     $('#searchStatus').textContent = `Read ${scanned.toLocaleString()} openings in ${secs}s · ${jobs.length} full-time jobs match · ${jobs.filter(j => j.fit.score >= 4).length} scored 4+ · internships are in their own tab`;
     $('#internStatus').textContent = `${interns.length} internships match your field · ${interns.filter(j => j.fit.score >= 4).length} scored 4+ for a student graduating ${state.parsed.education?.gradYear || '(add your graduation year to your resume)'}`;
+    readInBackground();
   } catch (e) {
     $('#searchStatus').textContent = `Search failed: ${e.message}`;
   } finally {
     btn.disabled = false; $('#progress').hidden = true;
   }
 });
+
+// ---------- background reading of full postings ----------
+// Listings that arrived with only a title get their posting read, best matches first, and are re-scored live.
+let readGen = 0;
+const setReadStatus = html => $$('.read-status').forEach(e => { e.innerHTML = html; e.hidden = !html; });
+async function readInBackground() {
+  const gen = ++readGen;
+  const pending = () => [...state.interns, ...state.jobs].filter(j => !j.descLoaded && !j.readFailed && !j.reading && j.url);
+  const total = pending().length;
+  if (!total) return setReadStatus('');
+  let done = 0, failed = 0, dirty = false;
+  const flush = () => { if (dirty) { dirty = false; saveJobs(); renderAll(); } };
+  const timer = setInterval(flush, 2500);
+  const show = () => setReadStatus(`📄 Reading full job postings for exact scores: <b>${done}/${total}</b> done${failed ? ` · ${failed} sites blocked reading` : ''}. Best matches go first; scores update as each posting arrives.${state.readerKey ? '' : ' <span class="muted">(Free reader: about 18 per minute. Add a free Jina key in step 2 to go faster.)</span>'}`);
+  show();
+  const worker = async () => {
+    for (;;) {
+      if (gen !== readGen) return;
+      const job = pending().sort((a, b) => b.fit.score - a.fit.score)[0];
+      if (!job) return;
+      job.reading = true;
+      await loadDetail(job).catch(() => {});
+      job.reading = false;
+      if (gen !== readGen) return;
+      if (job.descLoaded) job.fit = fitFor(job); else failed++;
+      done++; dirty = true; show();
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  clearInterval(timer);
+  flush();
+  if (gen === readGen) setReadStatus(`✅ Read ${done - failed} of ${total} postings in full${failed ? `; ${failed} sites block automatic reading, so those stay title-only (open them to check)` : ''}. All other scores use the full description.`);
+}
 
 const fitFor = job => (job.lane === 'intern' ? scoreInternship : scoreJob)(job, { ...state.parsed, text: state.resume }, state.prefs || readPrefs());
 
@@ -273,7 +311,8 @@ const fileName = job => `${(state.profile.name || 'Resume').replace(/\s+/g, '_')
 
 async function openKit(job) {
   if (!job.descLoaded) {
-    try { await loadDetail(job); if (job.descLoaded) { job.fit = fitFor(job); saveJobs(); } } catch { /* fall back to title-only */ }
+    toast('Reading the full job posting…', 8000);
+    try { job.readFailed = false; await loadDetail(job); if (job.descLoaded) { job.fit = fitFor(job); saveJobs(); } } catch { /* fall back to title-only */ }
   }
   const f = job.fit;
   const edu = state.parsed.education || {};
@@ -490,6 +529,8 @@ $('#apiModel').value = state.model;
 // Re-score saved results so they always use the current scoring rules.
 if (state.parsed && (state.jobs.length || state.interns.length)) rescore();
 if (state.jobs.length && state.parsed) { $('#searchStatus').textContent = `${state.jobs.length} jobs from your last search. Run it again for the newest.`; }
+if (state.readerKey) $('#readerKey').value = state.readerKey;
+if (state.parsed && (state.jobs.length || state.interns.length)) readInBackground();
 if (state.interns.length && state.parsed) { $('#internStatus').textContent = `${state.interns.length} internships from your last search. Run it again for the newest.`; }
 renderQueue();
 renderTracker();

@@ -55,29 +55,105 @@ async function fetchBoard(ats, slug) {
   return list;
 }
 
-// Fetches the full description for listings that arrive without one
-// (Greenhouse lists, and internship-list links that point at Greenhouse, Lever or Ashby).
+// ---------- full job descriptions ----------
+// 1. Public hiring-system APIs (Greenhouse, Lever, Ashby, SmartRecruiters): instant and unlimited.
+// 2. Everything else (Workday, iCIMS, Oracle, company career sites): the Jina Reader page reader,
+//    which allows about 20 pages a minute per visitor for free, more with a free key.
+// 3. Descriptions are cached in this browser for 14 days so repeat searches skip the network.
 const ashbyBoards = {};
-export async function loadDetail(job) {
-  if (job.descLoaded) return job;
+
+async function directDescription(job) {
   const u = job.url || '';
   let m;
-  if (job.ats === 'greenhouse' && job.slug) {
-    job.desc = htmlToText((await getJson(`https://boards-api.greenhouse.io/v1/boards/${job.slug}/jobs/${job.jobId}`)).content);
-  } else if ((m = u.match(/greenhouse\.io\/(?:embed\/job_app\?for=)?([\w-]+)\/jobs\/(\d+)/))) {
-    job.desc = htmlToText((await getJson(`https://boards-api.greenhouse.io/v1/boards/${m[1]}/jobs/${m[2]}`)).content);
-  } else if ((m = u.match(/jobs\.lever\.co\/([\w.-]+)\/([0-9a-f-]{36})/))) {
+  if (job.ats === 'greenhouse' && job.slug) return htmlToText((await getJson(`https://boards-api.greenhouse.io/v1/boards/${job.slug}/jobs/${job.jobId}`)).content);
+  if ((m = u.match(/greenhouse\.io\/(?:embed\/job_app\?for=)?([\w-]+)(?:\/jobs\/|&token=)(\d+)/))) return htmlToText((await getJson(`https://boards-api.greenhouse.io/v1/boards/${m[1]}/jobs/${m[2]}`)).content);
+  if ((m = u.match(/[?&]gh_jid=(\d+)/))) {
+    // Company career sites that embed Greenhouse: the board name is usually the company name.
+    const slug = (job.company || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    try { return htmlToText((await getJson(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs/${m[1]}`)).content); } catch { return null; }
+  }
+  if ((m = u.match(/jobs\.lever\.co\/([\w.-]+)\/([0-9a-f-]{36})/))) {
     const j = await getJson(`https://api.lever.co/v0/postings/${m[1]}/${m[2]}`);
-    job.desc = [j.descriptionPlain, ...(j.lists || []).map(l => `${l.text}\n${htmlToText(l.content)}`), j.additionalPlain].filter(Boolean).join('\n');
-  } else if ((m = u.match(/jobs\.ashbyhq\.com\/([\w.%-]+)\/([0-9a-f-]{36})/))) {
+    return [j.descriptionPlain, ...(j.lists || []).map(l => `${l.text}\n${htmlToText(l.content)}`), j.additionalPlain].filter(Boolean).join('\n');
+  }
+  if ((m = u.match(/jobs\.ashbyhq\.com\/([\w.%-]+)\/([0-9a-f-]{36})/))) {
     ashbyBoards[m[1]] ??= getJson(`https://api.ashbyhq.com/posting-api/job-board/${m[1]}`);
     const j = (await ashbyBoards[m[1]]).jobs.find(x => x.id === m[2]);
-    if (!j) return job;
-    job.desc = j.descriptionPlain || htmlToText(j.descriptionHtml);
-  } else {
-    return job;
+    return j ? j.descriptionPlain || htmlToText(j.descriptionHtml) : null;
   }
-  job.descLoaded = true;
+  if ((m = u.match(/smartrecruiters\.com\/([\w-]+)\/(\d{6,})/))) {
+    const j = await getJson(`https://api.smartrecruiters.com/v1/companies/${m[1]}/postings/${m[2]}`);
+    return Object.values(j.jobAd?.sections || {}).map(s => `${s.title || ''}\n${htmlToText(s.text)}`).join('\n');
+  }
+  return null;
+}
+export const hasDirectSource = job => /greenhouse|lever|ashby|smartrecruiters/.test(job.ats) || /gh_jid=|greenhouse\.io|lever\.co|ashbyhq\.com|smartrecruiters\.com/.test(job.url || '');
+
+// Page reader with a shared rate limit (a sliding one-minute window) and backoff on 429.
+const reader = { key: '', sent: [], pausedUntil: 0 };
+export const setReaderKey = k => { reader.key = (k || '').trim(); };
+const readerLimit = () => (reader.key ? 300 : 18);
+async function readerSlot() {
+  for (;;) {
+    const now = Date.now();
+    reader.sent = reader.sent.filter(t => now - t < 60000);
+    if (now >= reader.pausedUntil && reader.sent.length < readerLimit()) { reader.sent.push(now); return; }
+    const untilFree = now < reader.pausedUntil ? reader.pausedUntil - now : 60000 - (now - reader.sent[0]) + 50;
+    await new Promise(r => setTimeout(r, Math.max(500, untilFree)));
+  }
+}
+async function readPage(url) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await readerSlot();
+    const r = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { Accept: 'application/json', 'X-Retain-Images': 'none', ...(reader.key ? { Authorization: `Bearer ${reader.key}` } : {}) },
+      signal: AbortSignal.timeout(45000),
+    });
+    if (r.status === 429) { reader.pausedUntil = Date.now() + 20000 * (attempt + 1); continue; }
+    if (!r.ok) return null;
+    const text = (await r.json())?.data?.content || '';
+    // Drop markdown links and images so only the posting's words are scored.
+    return text.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\n{3,}/g, '\n\n').trim() || null;
+  }
+  return null;
+}
+
+// Tiny IndexedDB cache: url -> { desc, at }.
+const CACHE_DAYS = 14;
+let dbp = null;
+const db = () => (dbp ??= new Promise(res => {
+  try {
+    const req = indexedDB.open('reverseapply', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('desc');
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => res(null);
+  } catch { res(null); }
+}));
+async function cacheGet(url) {
+  const d = await db();
+  if (!d) return null;
+  return new Promise(res => {
+    const q = d.transaction('desc').objectStore('desc').get(url);
+    q.onsuccess = () => res(q.result && Date.now() - q.result.at < CACHE_DAYS * 864e5 ? q.result.desc : null);
+    q.onerror = () => res(null);
+  });
+}
+async function cachePut(url, desc) {
+  const d = await db();
+  if (d) try { d.transaction('desc', 'readwrite').objectStore('desc').put({ desc: desc.slice(0, 12000), at: Date.now() }, url); } catch { /* quota */ }
+}
+
+// Fills job.desc from the cache, a public API, or (with useReader) the page reader.
+export async function loadDetail(job, { useReader = true } = {}) {
+  if (job.descLoaded) return job;
+  let desc = await cacheGet(job.url);
+  if (!desc && hasDirectSource(job)) desc = await directDescription(job).catch(() => null);
+  if (!desc && useReader && job.url) desc = await readPage(job.url).catch(() => null);
+  if (desc && desc.length > 80) {
+    job.desc = desc;
+    job.descLoaded = true;
+    cachePut(job.url, desc);
+  } else if (useReader) job.readFailed = true;
   return job;
 }
 
@@ -214,9 +290,10 @@ export async function searchJobs(prefs, extraBoards, onProgress) {
     prefs.useInterns ? internLists().then(add).finally(tick) : null,
   ]);
 
-  // Some listings come without descriptions; fetch them for the newest matches only.
-  const need = [...jobs, ...interns].filter(j => !j.descLoaded && /greenhouse|lever|ashby/.test(j.ats)).sort((a, b) => b.posted - a.posted).slice(0, 400);
-  await pool(need, 12, j => loadDetail(j));
+  // Fill descriptions from the cache and the public APIs now; the page reader runs afterwards in the background.
+  const need = [...jobs, ...interns].filter(j => !j.descLoaded).sort((a, b) => b.posted - a.posted).slice(0, 2500);
+  onProgress?.({ done, total, scanned, found: jobs.length, foundInterns: interns.length, phase: `Reading ${need.length} job descriptions` });
+  await pool(need, 16, j => loadDetail(j, { useReader: false }));
   const kws = prefs.keywords.map(k => k.toLowerCase());
   const hasKws = j => kws.every(k => `${j.title} ${j.desc}`.toLowerCase().includes(k));
   return { jobs: jobs.filter(hasKws), interns: kws.length ? interns.filter(j => !j.descLoaded || hasKws(j)) : interns, scanned };
