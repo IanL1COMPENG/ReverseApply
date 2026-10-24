@@ -130,6 +130,13 @@ export function parseResume(text) {
     else if (raw) cur.lines.push(raw);
   }
   sections.push(cur);
+  // A paste that starts with a heading above the name ("EDUCATION / Kara R. Thomas / email | phone") would put
+  // the name and contact line inside that section; move them back to the header.
+  const header = sections.find(s => s.key === 'header');
+  for (const s of sections.filter(s => s.key !== 'header').slice(0, 1)) {
+    const isContact = l => /@|\(\d{3}\)|\d{3}[-.\s]\d{3}[-.\s]\d{4}|linkedin\.com|github\.com/i.test(l) || (profile.name && l.trim().toLowerCase().startsWith(profile.name.toLowerCase().split(' ')[0]) && l.trim().split(/\s+/).length <= 4 && !SCHOOL_RE.test(l));
+    while (s.lines.length && !SCHOOL_RE.test(s.lines[0]) && !DEGREE_RE.test(s.lines[0]) && isContact(s.lines[0])) header.lines.push(s.lines.shift());
+  }
   const kept = sections.filter(s => s.lines.length || s.key !== 'header');
   // Without an Education heading, only school/degree lines (and the line under each) count; never job or award dates.
   const eduText = kept.filter(s => s.key === 'education').flatMap(s => s.lines).join('\n')
@@ -208,7 +215,17 @@ export function parseEducation(edu) {
     ...gradDateOf(edu),
     // The first degree listed is the current one on a student resume.
     gradStudent: !!degreeM && /^(M|Ph)/.test(degreeM[1]),
+    fieldText: fieldOfStudy(edu),
   };
+}
+
+// What the person studies: the current degree's lines plus any Major / Minor / Specialization lines.
+function fieldOfStudy(edu) {
+  const lines = edu.split('\n');
+  const start = Math.max(0, lines.findIndex(l => SCHOOL_RE.test(l) || DEGREE_RE.test(l)));
+  const degree = lines.slice(start, start + 3).filter(l => DEGREE_RE.test(l) || /\b(major|minor|speciali[sz]|concentrat)/i.test(l));
+  const extra = lines.filter(l => /\b(major|minor|speciali[sz]ation|concentration|track)\b/i.test(l));
+  return [...new Set([...degree, ...extra])].filter(l => !NOT_GRAD.test(l)).join(' · ').replace(/\s*\|\s*[^|]*?(?:19|20)\d{2}.*$/gm, '');
 }
 
 function guessName(lines) {

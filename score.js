@@ -34,8 +34,10 @@ export function scoreJob(job, resume, prefs) {
   const flags = [];
 
   const roleHit = prefs.roles.length ? titleMatcher(prefs.roles)(job.title) : true;
-  const title = roleHit ? 1 : 0.45;
+  const major = degreeFit(job, resume, { student: false });
+  const title = Math.min(roleHit ? 1 : 0.45, major.fit);
   if (roleHit && prefs.roles.length) reasons.push('Title matches what you want');
+  reasons.push(...major.reasons); flags.push(...major.flags);
 
   const { skills, matched, missing, want } = skillFit(text, job, resume);
   if (want.length >= 3) reasons.push(`You have ${matched.length} of ${want.length} skills it asks for`);
@@ -58,7 +60,8 @@ export function scoreJob(job, resume, prefs) {
   reasons.push(...comp.reasons); flags.push(...comp.flags);
 
   const raw = 0.2 * title + 0.3 * skills + 0.25 * exp.score + 0.15 * seniority + 0.05 + 0.05 * fresh;
-  let score = 1 + 4 * raw - comp.penalty;
+  // For full-time roles, solid related work experience can stand in for the "right" degree.
+  let score = Math.min(exp.score >= 0.6 ? 5 : major.cap, 1 + 4 * raw - comp.penalty);
 
   if (prefs.needsSponsor && /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor/i.test(job.desc)) { score = Math.min(score, 1.8); flags.push('Says it will not sponsor visas'); }
   if (/(security|secret|ts\/sci) clearance (is )?required|active (secret|ts\/sci|top secret)/i.test(job.desc) && !/clearance/i.test(resume.text)) { score = Math.min(score, 2.4); flags.push('Requires a security clearance'); }
@@ -112,8 +115,11 @@ export function scoreInternship(job, resume, prefs) {
   const field = internMatcher(prefs.roles)(job);
   // Exact role match ("software engineer" -> "Software Engineering Intern") beats a same-field match ("Data Intern").
   const exact = titleMatcher(prefs.roles.map(r => r.replace(/\b(intern(ship)?|co-?op)\b/gi, '').trim()).filter(Boolean))(job.title);
-  const title = exact ? 1 : field ? 0.7 : 0.4;
-  if (field && prefs.roles.length) reasons.push('Same field as what you want');
+  const major = degreeFit(job, resume, { student: true });
+  // Field = does it match what you want AND what you study.
+  const title = Math.min(exact ? 1 : field ? 0.7 : 0.4, major.fit);
+  if (field && prefs.roles.length && major.fit === 1) reasons.push('Same field as what you want');
+  reasons.push(...major.reasons); flags.push(...major.flags);
 
   const { skills, matched, missing, want } = skillFit(text, job, resume);
   if (want.length >= 3) reasons.push(`You have ${matched.length} of ${want.length} skills it asks for`);
@@ -143,7 +149,7 @@ export function scoreInternship(job, resume, prefs) {
   const comp = competition(job, resume, { exp: exp.score, skills, gpa: +edu.gpa || 0 });
   reasons.push(...comp.reasons); flags.push(...comp.flags);
 
-  let score = Math.min(cap, 1 + 4 * (0.2 * title + 0.25 * skills + 0.2 * exp.score + 0.25 * student + 0.05 + 0.05 * fresh) - comp.penalty);
+  let score = Math.min(cap, major.cap, 1 + 4 * (0.2 * title + 0.25 * skills + 0.2 * exp.score + 0.25 * student + 0.05 + 0.05 * fresh) - comp.penalty);
   const notUs = prefs.needsSponsor || prefs.otherCountry;
   if (notUs && (/does not offer sponsorship|citizenship is required/i.test(job.sponsorship) || /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor|u\.s\. citizen(ship)? (is )?required/i.test(job.desc))) {
     score = Math.min(score, 1.8); flags.push(job.sponsorship ? `${job.sponsorship}` : 'Will not sponsor visas');
@@ -179,7 +185,9 @@ function fieldExperience(job, resume, jdSkills, { student, needYears = 0 }) {
   const related = (resume.entries || []).filter(e => {
     const t = e.text.toLowerCase();
     const sameField = specific.length ? specific.some(s => t.includes(s)) : roles.some(s => t.includes(s));
-    return sameField || e.skills.filter(s => want.has(s)).length >= (student && e.kind !== 'job' ? 1 : 2);
+    // For technical roles, a student's coding project counts even if it used different languages.
+    const techProject = student && e.kind !== 'job' && TECH_TITLE.test(job.title) && e.skills.some(s => TECH_SKILLS.includes(s) || /react|node|django|flask|api|html|css/.test(s));
+    return sameField || techProject || e.skills.filter(s => want.has(s)).length >= (student && e.kind !== 'job' ? 1 : 2);
   });
   const jobs = related.filter(e => e.kind === 'job'), projects = related.filter(e => e.kind === 'project'), acts = related.filter(e => e.kind === 'activity');
   const years = jobs.reduce((n, e) => n + e.years, 0);
@@ -210,6 +218,64 @@ function competition(job, resume, { exp, skills, gpa = 0 }) {
   else if (tier === 4) reasons.push('Less crowded than big-name employers: better odds');
   if (best && best.tier <= 2) reasons.push(`${best.name} on your resume stands out to recruiters`);
   return { tier, penalty, odds: Math.max(0, 1 - penalty / 1.44), reasons, flags };
+}
+
+// ---------- degree fit: does what you study match what the job hires from? ----------
+const FAMILIES = {
+  cs: [/computer science|computer engineering|software engineering|informatics|computing|information (technology|systems|science)|data science|\bCSE?\b|\bEECS\b|\bECE\b/i, 'Computer Science'],
+  eng: [/(electrical|mechanical|civil|chemical|aerospace|industrial|biomedical|materials|systems|manufacturing|nuclear) engineering|\bengineering\b/i, 'Engineering'],
+  math: [/mathematic|statistic|actuarial|physics|quantitative|operations research/i, 'Math/Statistics'],
+  business: [/business|marketing|management|finance|accounting|economics|supply chain|entrepreneurship|\bMBA\b|commerce|sales|hospitality|real estate/i, 'Business'],
+  comm: [/communication|journalism|public relations|advertising|media studies|english|writing|rhetoric/i, 'Communications'],
+  design: [/\bdesign\b|graphic|fine arts?\b|\bart\b|architecture|human.computer interaction|\bHCI\b|animation|film/i, 'Design/Arts'],
+  science: [/biology|chemistry|neuroscience|biochem|health|nursing|pharmac|kinesiology|environmental|life sciences?|biomedical sciences?|public health/i, 'Science/Health'],
+  social: [/psychology|sociology|political science|history|anthropology|international (relations|studies)|public policy|philosophy|criminal justice/i, 'Social Sciences'],
+  edu: [/\beducation\b|teaching/i, 'Education'],
+  law: [/\blaw\b|legal studies|pre-law/i, 'Law'],
+};
+const RELATED = { cs: ['math', 'eng'], eng: ['cs', 'math'], math: ['cs', 'eng', 'business'], business: ['comm', 'math'], comm: ['business', 'design'], design: ['comm', 'cs'], science: ['eng'], social: ['comm', 'edu', 'law'], edu: ['social'], law: ['social', 'business'] };
+const familiesIn = text => Object.keys(FAMILIES).filter(f => FAMILIES[f][0].test(text || ''));
+const famNames = fams => fams.map(f => FAMILIES[f][1]).join(' or ');
+const TECH_TITLE = /software|developer|\bswe\b|machine learning|\bml\b|\bai\b engineer|data (scien|engineer)|firmware|embedded|hardware engineer|devops|site reliability|\bsre\b|security engineer|back.?end|front.?end|full.?stack|mobile engineer|\bios\b|android|computer vision|robotics engineer/i;
+const TECH_SKILLS = ['python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'go', 'rust', 'sql', 'react', 'node.js', 'git', 'aws', 'docker', 'kubernetes', 'machine learning', 'data structures', 'algorithms', 'swift', 'kotlin', 'matlab', 'r'];
+
+// Majors the posting asks for, read from sentences about degrees ("pursuing a degree in Computer Science
+// or a related field", "Finance or Economics majors"). "Any major" means no restriction.
+function wantedMajors(desc = '') {
+  if (/\b(any|all) (majors?|disciplines?|fields? of study)\b|regardless of (major|degree)|no specific major|open to all majors/i.test(desc)) return { fams: [], related: false };
+  // Only the words right after "degree in / majoring in / pursuing ..." or right before "majors / students / degree".
+  const stop = /\b(and|with|who|to|where|while|that)\s+(a |an )?(strong|passion|interest|experience|ability|knowledge|understanding|familiarity|proficien|excellent|demonstrated)|\b(experience|knowledge|skills?|understanding) (in|of|with)\b/i;
+  // A window ends at a sentence end, but not at the dots inside "B.S." or "M.S.".
+  const cut = s => s.split(/(?<![A-Z])\.(?:\s|$)/)[0].split(stop)[0];
+  const windows = [
+    ...[...desc.matchAll(/\b(?:degree|majoring|major|pursuing|studying|enrolled|discipline|field of study|bachelor['’]?s|B\.?S\.?|B\.?A\.?)\b([^;\n]{0,160})/gi)].map(m => cut(m[1])),
+    ...[...desc.matchAll(/([A-Za-z ,&/-]{3,90}?)\s+(?:majors|students|degree|background)\b/g)].map(m => m[1].split(/[.;:]/).pop()),
+  ];
+  const fams = [...new Set(windows.flatMap(familiesIn))];
+  return { fams, related: windows.some(w => /related (technical |quantitative )?(field|discipline|major|area)|similar field|equivalent/i.test(w)) || /related (technical )?field/i.test(desc) && fams.length > 0 };
+}
+
+function degreeFit(job, resume, { student }) {
+  const edu = resume.education || {};
+  const mine = familiesIn(edu.fieldText || `${edu.degree} ${edu.major}`);
+  const myMajor = (edu.fieldText || edu.major || '').split(' · ').map(s => s.replace(/^(bachelor|master)[^,]*? (of|in) (science|arts)?( in)?\s*/i, '').replace(/^(specialization|major|minor|concentration):\s*/i, '')).filter(Boolean).slice(0, 2).join(', ') || famNames(mine);
+  if (!mine.length) return { fit: 1, cap: 5, reasons: [], flags: [] };
+  const { fams, related } = wantedMajors(job.desc);
+  const ok = fams.filter(f => mine.includes(f));
+  const near = fams.filter(f => mine.some(m => (RELATED[m] || []).includes(f)));
+  if (fams.length && ok.length) return { fit: 1, cap: 5, reasons: [`Hires ${famNames(fams)} majors: that's your field`], flags: [] };
+  if (fams.length && near.length && related) return { fit: 0.65, cap: 4.2, reasons: [], flags: [`Asks for ${famNames(fams)} or a related field; your ${myMajor} is related, not an exact match`] };
+  if (fams.length) {
+    return { fit: 0.1, cap: student ? 1.9 : 2.4, reasons: [], flags: [`Asks for ${student ? 'students pursuing ' : 'a degree in '}${famNames(fams)}${related ? ' (or related)' : ''}; you study ${myMajor}`] };
+  }
+  // No majors listed: technical roles still hire from CS/engineering/math unless the resume shows real coding skills.
+  const techMajor = mine.some(f => ['cs', 'eng', 'math'].includes(f));
+  if (TECH_TITLE.test(job.title) && !techMajor) {
+    const coding = (resume.skills || []).filter(s => TECH_SKILLS.includes(s)).length;
+    if (coding < 3) return { fit: 0.2, cap: student ? 2.2 : 2.6, reasons: [], flags: [`Technical role usually filled by Computer Science or engineering majors; you study ${myMajor} and your resume shows little coding`] };
+    return { fit: 0.6, cap: 3.8, reasons: [], flags: [`Technical role; your ${myMajor} degree is outside the usual majors, but your coding skills help`] };
+  }
+  return { fit: 1, cap: 5, reasons: [], flags: [] };
 }
 
 export const scoreClass = s => `s${Math.max(1, Math.min(5, Math.floor(s)))}`;
