@@ -2,6 +2,7 @@
 import { skillWeights, pretty } from './skills.js';
 import { titleMatcher, internMatcher } from './search.js';
 import { companyTier, TIER_LABEL } from './companies-tiers.js';
+import { requirementFit } from './reqs.js';
 
 const LEVELS = ['Internship', 'Entry level', 'Mid level', 'Senior', 'Staff / Lead', 'Director+'];
 
@@ -41,8 +42,11 @@ export function scoreJob(job, resume, prefs) {
   else if (prefs.roles.length) flags.push(`Not one of your target roles (${prefs.roles.join(', ')})`);
   reasons.push(...major.reasons); flags.push(...major.flags);
 
-  const { skills, matched, missing, want } = skillFit(text, job, resume);
+  const { skills: keywordSkills, matched, missing, want } = skillFit(text, job, resume);
   if (want.length >= 3) reasons.push(`You have ${matched.length} of ${want.length} skills it asks for`);
+  const req = reqCheck(job, resume, keywordSkills);
+  const skills = req.skills;
+  reasons.push(...req.reasons); flags.push(...req.flags);
 
   const jl = jobLevel(job.title, job.desc);
   const cl = candidateLevel(resume.years, prefs.level);
@@ -63,7 +67,7 @@ export function scoreJob(job, resume, prefs) {
 
   const raw = 0.2 * title + 0.3 * skills + 0.25 * exp.score + 0.15 * seniority + 0.05 + 0.05 * fresh;
   // For full-time roles, solid related work experience can stand in for the "right" degree.
-  let score = Math.min(exp.score >= 0.6 ? 5 : major.cap, roleHit ? 5 : 2.8, 1 + 4 * raw - comp.penalty);
+  let score = Math.min(exp.score >= 0.6 ? 5 : major.cap, roleHit ? 5 : 2.8, req.cap, 1 + 4 * raw - comp.penalty);
 
   if (prefs.needsSponsor && /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor/i.test(job.desc)) { score = Math.min(score, 1.8); flags.push('Says it will not sponsor visas'); }
   if (/(security|secret|ts\/sci) clearance (is )?required|active (secret|ts\/sci|top secret)/i.test(job.desc) && !/clearance/i.test(resume.text)) { score = Math.min(score, 2.4); flags.push('Requires a security clearance'); }
@@ -73,7 +77,7 @@ export function scoreJob(job, resume, prefs) {
   return {
     score, matched, missing: missing.slice(0, 15),
     parts: { title, skills, experience: exp.score, seniority, odds: comp.odds, fresh },
-    reasons, flags, tier: comp.tier, related: exp.related,
+    reasons, flags, tier: comp.tier, related: exp.related, reqs: req.summary,
     verdict: score >= 4.5 ? 'Apply now' : score >= 4 ? 'Strong fit, apply' : score >= 3 ? 'Possible, only with a reason' : 'Skip',
     label: matched.slice(0, 5).map(pretty).join(', '),
   };
@@ -137,7 +141,12 @@ function acceptedYears(desc = '') {
   if (/\b(all|any) (class )?years\b|\bfreshm[ae]n through seniors\b|\ball (academic )?levels\b|\bany year of study\b/i.test(desc)) return [];
   const out = [];
   for (const s of desc.split(/(?<=[.!?\n•;])\s+/)) {
-    if (!/\b(students?|undergrad\w*|class|years?|college|university|enrolled|pursuing|rising|graduating|majors?|open to|eligible|only|intended for|reserved for|program|for)\b/i.test(s)) continue;
+    if (!/\b(students?|undergrad\w*|class|years?|college|university|enrolled|pursuing|rising|graduating|majors?|open to|eligible|only|intended for|reserved for|program|for|upperclass\w*|underclass\w*)\b/i.test(s)) continue;
+    // "Upperclassmen are preferred" is a preference, not a rule.
+    const preferred = /\b(prefer\w*|ideal\w*|desired|a plus|nice to have)\b/i.test(s);
+    const before = out.length;
+    if (/\bupperclass\w*/i.test(s)) out.push({ level: 'junior' }, { level: 'senior' });
+    if (/\bunderclass\w*/i.test(s)) out.push({ level: 'freshman' }, { level: 'sophomore' });
     for (const m of s.matchAll(/\b(rising|graduating)\s+((?:freshm[ae]n|sophomores?|juniors?|seniors?)(?:(?:\s*,\s*|\s+(?:and|or|&|\/)\s+|\s*\/\s*)(?:freshm[ae]n|sophomores?|juniors?|seniors?))*)/gi)) {
       for (const w of m[2].split(/\s*(?:,|\band\b|\bor\b|&|\/)\s*/i).filter(Boolean)) out.push({ level: levelOf(w), rising: /rising/i.test(m[1]) });
     }
@@ -145,6 +154,7 @@ function acceptedYears(desc = '') {
     for (const m of plain.matchAll(/\b(freshmen|sophomores|juniors|seniors)\b|\b(freshman|sophomore|junior|senior)[- ](?:year|standing|class|students?|undergrad\w*)\b|\b(first|second|third|fourth|final)[- ]year (?:students?|undergrad\w*)\b/gi)) {
       out.push({ level: levelOf(m[1] || m[2] || m[3]), rising: false });
     }
+    for (let i = before; i < out.length; i++) { out[i].rising ??= false; out[i].preferred = preferred; }
   }
   return out.filter(o => o.level);
 }
@@ -165,6 +175,7 @@ function classFit(job, edu, gradYearMatches) {
   ].filter(Boolean).join(' and ');
   if (ok) return { ok: true, text: `Open to ${label}: ${you}, so you qualify` };
   if (gradYearMatches) return { ok: true, text: `Says ${label}, but it also lists the class of ${edu.gradYear}, which is you` };
+  if (wanted.every(w => w.preferred)) return { ok: false, preferred: true, text: `Prefers ${label}; ${you}` };
   return { ok: false, text: `Only for ${label}; ${you} (graduating ${edu.gradDate})` };
 }
 
@@ -188,8 +199,11 @@ export function scoreInternship(job, resume, prefs) {
   else if (!m) flags.push(`Not one of your target roles (${prefs.roles.join(', ')})`);
   reasons.push(...major.reasons); flags.push(...major.flags);
 
-  const { skills, matched, missing, want } = skillFit(text, job, resume);
+  const { skills: keywordSkills, matched, missing, want } = skillFit(text, job, resume);
   if (want.length >= 3) reasons.push(`You have ${matched.length} of ${want.length} skills it asks for`);
+  const req = reqCheck(job, resume, keywordSkills);
+  const skills = req.skills;
+  reasons.push(...req.reasons); flags.push(...req.flags);
 
   let student = 1;
   let cap = 5; // hard eligibility rules cap the score instead of just lowering it
@@ -202,6 +216,7 @@ export function scoreInternship(job, resume, prefs) {
   if (!edu.gradStudent && (/\b(ph\.?\s?d|doctoral|master'?s (student|candidate|program))\b/i.test(job.title) || /\b(MS|M\.S\.|PhD)\b/.test(job.title) || gradOnlyText(job.desc))) { student = Math.min(student, 0.25); cap = Math.min(cap, 2.5); flags.push('Meant for graduate students'); }
   const cls = classFit(job, edu, grad && wantYears.includes(grad));
   if (cls?.ok) reasons.push(cls.text);
+  else if (cls?.preferred) { student = Math.min(student, 0.6); flags.push(cls.text); }
   else if (cls) { student = Math.min(student, 0.3); cap = Math.min(cap, 2.5); flags.push(cls.text); }
   const gpaMin = +((job.desc || '').match(/(?:minimum|min\.?|at least)[^.\n]{0,20}?([23]\.\d)\s*(?:\/\s*4\.0\s*)?gpa|gpa[^.\n]{0,20}?(?:of|minimum)?\s*([23]\.\d)\s*(?:or (?:higher|above)|\+)/i) || []).slice(1).find(Boolean) || 0;
   if (gpaMin && edu.gpa && +edu.gpa < gpaMin) { student = Math.min(student, 0.4); cap = Math.min(cap, 2.9); flags.push(`Asks for a ${gpaMin}+ GPA; yours is ${edu.gpa}`); }
@@ -218,7 +233,7 @@ export function scoreInternship(job, resume, prefs) {
   reasons.push(...comp.reasons); flags.push(...comp.flags);
 
   // Not one of the roles you asked for: it can't be a strong fit for you, however the rest scores.
-  let score = Math.min(cap, major.cap, m ? 5 : 2.8, 1 + 4 * (0.2 * title + 0.25 * skills + 0.2 * exp.score + 0.25 * student + 0.05 + 0.05 * fresh) - comp.penalty);
+  let score = Math.min(cap, major.cap, m ? 5 : 2.8, req.cap, 1 + 4 * (0.2 * title + 0.25 * skills + 0.2 * exp.score + 0.25 * student + 0.05 + 0.05 * fresh) - comp.penalty);
   const notUs = prefs.needsSponsor || prefs.otherCountry;
   if (notUs && (/does not offer sponsorship|citizenship is required/i.test(job.sponsorship) || /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor|u\.s\. citizen(ship)? (is )?required/i.test(job.desc))) {
     score = Math.min(score, 1.8); flags.push(job.sponsorship ? `${job.sponsorship}` : 'Will not sponsor visas');
@@ -230,7 +245,7 @@ export function scoreInternship(job, resume, prefs) {
   return {
     score, matched, missing: missing.slice(0, 15),
     parts: { title, skills, experience: exp.score, seniority: student, odds: comp.odds, fresh },
-    reasons, flags, student: true, tier: comp.tier, related: exp.related,
+    reasons, flags, student: true, tier: comp.tier, related: exp.related, reqs: req.summary,
     verdict: score >= 4.5 ? 'Apply now: great student fit' : score >= 4 ? 'Strong fit for you' : score >= 3 ? 'Possible stretch' : 'Skip this one',
     label: matched.slice(0, 5).map(pretty).join(', '),
   };
@@ -345,6 +360,29 @@ function degreeFit(job, resume, { student }) {
     return { fit: 0.6, cap: 3.8, reasons: [], flags: [`Technical role; your ${myMajor} degree is outside the usual majors, but your coding skills help`] };
   }
   return { fit: 1, cap: 5, reasons: [], flags: [] };
+}
+
+// ---------- must-haves and nice-to-haves ----------
+// Each requirement line is checked against the resume; missing must-haves pull the score down hard.
+const shortReq = t => (t.length > 60 ? `${t.slice(0, 57).replace(/\s+\S*$/, '')}…` : t);
+function reqCheck(job, resume, keywordSkills) {
+  const r = job.descLoaded ? requirementFit(job.desc, resume) : null;
+  const summary = r && { must: r.must.map(i => ({ t: i.text, s: i.status })), nice: r.nice.map(i => ({ t: i.text, s: i.status })) };
+  if (!r || (!r.mustRate && !r.niceRate)) return { skills: keywordSkills, cap: 5, reasons: [], flags: [], summary };
+  const reasons = [], flags = [];
+  let cap = 5, skills;
+  if (r.mustRate) {
+    skills = 0.6 * r.mustRate.score + 0.2 * (r.niceRate?.score ?? r.mustRate.score) + 0.2 * keywordSkills;
+    const missing = r.must.filter(i => i.status === 'missing').slice(0, 2).map(i => `"${shortReq(i.text)}"`).join(', ');
+    const tally = `${r.mustRate.met} of ${r.mustRate.n} must-haves${r.mustRate.partial ? ` (${r.mustRate.partial} partly)` : ''}`;
+    if (r.mustRate.n >= 2 && r.mustRate.score < 0.3) { cap = 2.5; flags.push(`Meets only ${tally}; missing ${missing}`); }
+    else if (r.mustRate.n >= 2 && r.mustRate.score < 0.55) { cap = 3.4; flags.push(`Meets ${tally}; missing ${missing}`); }
+    else reasons.push(`Meets ${tally}${r.niceRate ? ` and ${r.niceRate.met} of ${r.niceRate.n} nice-to-haves` : ''}`);
+  } else {
+    skills = 0.75 * keywordSkills + 0.25 * r.niceRate.score;
+    reasons.push(`Meets ${r.niceRate.met} of ${r.niceRate.n} nice-to-haves`);
+  }
+  return { skills, cap, reasons, flags, summary };
 }
 
 export const scoreClass = s => `s${Math.max(1, Math.min(5, Math.floor(s)))}`;

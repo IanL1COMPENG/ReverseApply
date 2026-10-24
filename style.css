@@ -104,6 +104,9 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); ou
 .intern-intro { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; }
 .intern-intro p { margin: 0; }
 .tag { display: inline-block; font-size: .72rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); }
+.reqs { display: grid; gap: 2px; font-size: .84rem; }
+.req { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
+.req b { min-width: 14px; }
 .read-status { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
 .tag-hot { background: color-mix(in srgb, var(--bad) 16%, var(--surface)); color: var(--ink); }
 .jobs-head { display: grid; gap: 12px; margin-bottom: 16px; }

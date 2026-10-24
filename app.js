@@ -335,6 +335,16 @@ function textToDoc(text) {
   return { name, contact, sections };
 }
 
+// The posting's requirements, each checked against the resume.
+const REQ_MARK = { met: ['✓', 'good', 'You have this'], partial: ['◐', 'mid', 'Partly shown on your resume'], missing: ['✗', 'bad', 'Not on your resume'], soft: ['–', 'muted', 'Soft skill: not checked from a resume'], eligibility: ['–', 'muted', 'Eligibility: checked separately'] };
+function reqList(title, items) {
+  if (!items?.length) return '';
+  return `<h4>${title} <span class="muted">(from the posting, checked against your resume)</span></h4><div class="reqs">${items.map(i => {
+    const [mark, tone, tip] = REQ_MARK[i.s] || REQ_MARK.soft;
+    return `<div class="req" title="${tip}"><b style="color:var(--${tone === 'muted' ? 'ink-2' : tone})">${mark}</b><span class="${tone === 'muted' ? 'muted' : ''}">${esc(i.t)}</span></div>`;
+  }).join('')}</div>`;
+}
+
 const fileName = job => `${(state.profile.name || 'Resume').replace(/\s+/g, '_')}_${job.company.replace(/\W+/g, '')}.pdf`;
 
 async function openKit(job) {
@@ -359,6 +369,7 @@ async function openKit(job) {
         <div class="breakdown">${bar(f.student ? 'Field' : 'Title', f.parts.title)}${bar('Skills', f.parts.skills)}${bar('Experience', f.parts.experience ?? 0)}${bar(f.student ? 'Student fit' : 'Level', f.parts.seniority)}${bar('Your odds', f.parts.odds ?? 1)}${bar('Freshness', f.parts.fresh)}</div>
         <p class="small muted">${esc(job.company)}: <b>${esc(TIER_LABEL[f.tier] || TIER_LABEL[4])}</b> (estimated from reputation and demand).${f.related?.length ? ` Counted as relevant experience: ${esc(f.related.join('; '))}.` : ''}</p>
         <ul class="small">${[...f.reasons, ...f.flags].map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+        ${reqList('Must-haves', f.reqs?.must)}${reqList('Nice-to-haves', f.reqs?.nice)}
         <h4>Keywords you already have <span class="muted">(moved to the top of your resume)</span></h4>
         <div class="chips">${f.matched.map(s => `<span class="chip hit">${esc(pretty(s))}</span>`).join('') || '<span class="muted small">None detected.</span>'}</div>
         <h4>Keywords they want that your resume doesn't show</h4>
