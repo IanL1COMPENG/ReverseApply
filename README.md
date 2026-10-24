@@ -6,7 +6,12 @@ ReverseApply is a free website that turns one resume into a stack of tailored, r
 
 1. **Upload your resume** (PDF, DOCX or text). It's read in your browser and never leaves it.
 2. **Search at the source.** ReverseApply queries ~200 employers' own hiring systems (Greenhouse, Lever, Ashby) plus remote job feeds in parallel, so you see postings as soon as companies publish them. Paste any company's board link to add it.
-3. **Every job is scored 1–5** on title, skills, seniority, freshness, visa and clearance requirements, with the reasons. 5/5 = apply now; below 4 = we tell you to skip.
+3. **Every job is scored 1–5**, with the reasons. 5/5 = apply now; below 4 = we tell you to skip. The score weighs:
+   - **Title and skills**: does the posting match what you want, and how many of its required skills you have.
+   - **Relevant experience**: each past job, internship, project and activity on your resume is checked against the posting's field, with years of related work compared to what the level needs.
+   - **Level / student fit**: seniority for jobs; graduation year, degree level and GPA for internships.
+   - **Your odds**: how competitive the company is (estimated tiers from reputation and applicant demand, plus employer size), weighed against your profile strength. A strong profile with brand-name experience barely loses points at top companies; a beginner profile loses more there and is steered toward employers where the odds are better.
+   - Freshness, visa sponsorship and clearance requirements.
 4. **Tailored resume per job.** Your resume is reordered around the keywords each posting asks for, you tick any missing keywords you genuinely have, and it's exported as a clean, ATS-friendly PDF, with application answers and a cover letter.
 5. **🎓 College internships tab.** Internships, co-ops and student programs are split out from full-time jobs into their own tab, pulled from company job boards plus the student-run [SimplifyJobs](https://github.com/SimplifyJobs/Summer2027-Internships) lists. They're scored on *student fit*: your graduation year vs. the class they want, undergrad vs. master's/PhD-only roles, GPA minimums, field and skills. Tailored resumes for internships put Education first and lead with your school and class year.
 6. **Autopilot** fills the applications for you from an exported pack (see below).

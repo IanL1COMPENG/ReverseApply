@@ -1,5 +1,6 @@
 // Reads a resume file in the browser and pulls out profile fields and sections.
 import { extractSkills } from './skills.js';
+import { brandEmployers } from './companies-tiers.js';
 
 export async function readResumeFile(file) {
   const name = file.name.toLowerCase();
@@ -67,7 +68,32 @@ export function parseResume(text) {
   sections.push(cur);
   const kept = sections.filter(s => s.lines.length || s.key !== 'header');
   const eduText = kept.filter(s => s.key === 'education').flatMap(s => s.lines).join('\n') || text;
-  return { profile, sections: kept, skills: extractSkills(text), years: yearsOfExperience(text), education: parseEducation(eduText) };
+  const entries = parseEntries(kept);
+  return {
+    profile, sections: kept, skills: extractSkills(text), years: yearsOfExperience(text), education: parseEducation(eduText), entries,
+    brands: brandEmployers(entries.filter(e => e.kind !== 'project').map(e => e.header)),
+  };
+}
+
+// Each past job, project or activity as its own entry: header lines, bullets, years and skills.
+const ENTRY_KIND = { experience: 'job', projects: 'project', leadership: 'activity' };
+export function parseEntries(sections) {
+  const entries = [];
+  for (const s of sections) {
+    const kind = ENTRY_KIND[s.key];
+    if (!kind) continue;
+    let cur = null;
+    for (const line of s.lines) {
+      const bullet = /^[•\-*▪◦●■►‣–]/.test(line);
+      if (!bullet && (!cur || cur.bullets.length)) { cur = { kind, header: [line], bullets: [] }; entries.push(cur); }
+      else if (!bullet) cur.header.push(line);
+      else if (cur) cur.bullets.push(line);
+    }
+  }
+  return entries.map(e => {
+    const text = [...e.header, ...e.bullets].join('\n');
+    return { kind: e.kind, header: e.header.join(' · '), text, years: yearsOfExperience(e.header.join(' ')), skills: extractSkills(text) };
+  });
 }
 
 // School, degree, major, graduation year and GPA, for internship matching and student resumes.

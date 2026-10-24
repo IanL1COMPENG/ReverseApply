@@ -1,6 +1,7 @@
 // Rates a job 1.0–5.0 for one candidate, with the reasons behind the number.
 import { skillWeights, pretty } from './skills.js';
 import { titleMatcher, internMatcher } from './search.js';
+import { companyTier, TIER_LABEL } from './companies-tiers.js';
 
 const LEVELS = ['Internship', 'Entry level', 'Mid level', 'Senior', 'Staff / Lead', 'Director+'];
 
@@ -51,8 +52,13 @@ export function scoreJob(job, resume, prefs) {
   const fresh = ageDays < 2 ? 1 : ageDays < 7 ? 0.8 : ageDays < 14 ? 0.6 : 0.4;
   if (ageDays < 2) reasons.push('Posted in the last 48 hours: early applicants get seen first');
 
-  let raw = 0.25 * title + 0.45 * skills + 0.2 * seniority + 0.05 + 0.05 * fresh;
-  let score = 1 + 4 * raw;
+  const exp = fieldExperience(job, resume, want, { student: false, needYears: yrs ?? [0, 0, 2, 5, 7, 10][Math.round(jl)] });
+  reasons.push(...exp.reasons); flags.push(...exp.flags);
+  const comp = competition(job, resume, { exp: exp.score, skills });
+  reasons.push(...comp.reasons); flags.push(...comp.flags);
+
+  const raw = 0.2 * title + 0.3 * skills + 0.25 * exp.score + 0.15 * seniority + 0.05 + 0.05 * fresh;
+  let score = 1 + 4 * raw - comp.penalty;
 
   if (prefs.needsSponsor && /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor/i.test(job.desc)) { score = Math.min(score, 1.8); flags.push('Says it will not sponsor visas'); }
   if (/(security|secret|ts\/sci) clearance (is )?required|active (secret|ts\/sci|top secret)/i.test(job.desc) && !/clearance/i.test(resume.text)) { score = Math.min(score, 2.4); flags.push('Requires a security clearance'); }
@@ -61,8 +67,8 @@ export function scoreJob(job, resume, prefs) {
   score = Math.round(Math.min(5, Math.max(1, score)) * 10) / 10;
   return {
     score, matched, missing: missing.slice(0, 15),
-    parts: { title, skills, seniority, fresh },
-    reasons, flags,
+    parts: { title, skills, experience: exp.score, seniority, odds: comp.odds, fresh },
+    reasons, flags, tier: comp.tier, related: exp.related,
     verdict: score >= 4.5 ? 'Apply now' : score >= 4 ? 'Strong fit, apply' : score >= 3 ? 'Possible, only with a reason' : 'Skip',
     label: matched.slice(0, 5).map(pretty).join(', '),
   };
@@ -120,7 +126,12 @@ export function scoreInternship(job, resume, prefs) {
   const fresh = ageDays < 7 ? 1 : ageDays < 21 ? 0.8 : ageDays < 45 ? 0.6 : 0.45;
   if (ageDays < 3) reasons.push('Just posted: internship spots fill on a rolling basis, so apply early');
 
-  let score = Math.min(cap, 1 + 4 * (0.25 * title + 0.4 * skills + 0.25 * student + 0.05 + 0.05 * fresh));
+  const exp = fieldExperience(job, resume, want, { student: true });
+  reasons.push(...exp.reasons); flags.push(...exp.flags);
+  const comp = competition(job, resume, { exp: exp.score, skills, gpa: +edu.gpa || 0 });
+  reasons.push(...comp.reasons); flags.push(...comp.flags);
+
+  let score = Math.min(cap, 1 + 4 * (0.2 * title + 0.25 * skills + 0.2 * exp.score + 0.25 * student + 0.05 + 0.05 * fresh) - comp.penalty);
   const notUs = prefs.needsSponsor || prefs.otherCountry;
   if (notUs && (/does not offer sponsorship|citizenship is required/i.test(job.sponsorship) || /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor|u\.s\. citizen(ship)? (is )?required/i.test(job.desc))) {
     score = Math.min(score, 1.8); flags.push(job.sponsorship ? `${job.sponsorship}` : 'Will not sponsor visas');
@@ -131,11 +142,62 @@ export function scoreInternship(job, resume, prefs) {
   score = Math.round(Math.min(5, Math.max(1, score)) * 10) / 10;
   return {
     score, matched, missing: missing.slice(0, 15),
-    parts: { title, skills, seniority: student, fresh },
-    reasons, flags, student: true,
+    parts: { title, skills, experience: exp.score, seniority: student, odds: comp.odds, fresh },
+    reasons, flags, student: true, tier: comp.tier, related: exp.related,
     verdict: score >= 4.5 ? 'Apply now: great student fit' : score >= 4 ? 'Strong fit for you' : score >= 3 ? 'Possible stretch' : 'Skip this one',
     label: matched.slice(0, 5).map(pretty).join(', '),
   };
+}
+
+// ---------- field experience: have you actually done this kind of work? ----------
+const ROLE_NOUNS = new Set(['engineer', 'engineering', 'developer', 'development', 'analyst', 'analytics', 'manager', 'management', 'specialist', 'associate', 'scientist', 'science', 'designer', 'design', 'coordinator', 'consultant', 'representative', 'assistant', 'architect', 'researcher', 'technician', 'administrator', 'accountant', 'writer']);
+const NOISE = new Set(['senior', 'junior', 'staff', 'principal', 'lead', 'head', 'intern', 'internship', 'co', 'op', 'summer', 'fall', 'spring', 'winter', 'new', 'grad', 'graduate', 'early', 'career', 'entry', 'level', 'sr', 'jr', 'ii', 'iii', 'iv', 'remote', 'hybrid', 'and', 'of', 'the', 'for', 'to', 'in', 'with', 'at', 'team', 'undergrad', 'undergraduate', 'student', 'program', 'us', 'usa']);
+const stem = w => w.slice(0, Math.min(6, Math.max(4, w.length - 1)));
+
+function fieldOf(title) {
+  const words = title.toLowerCase().replace(/\(.*?\)/g, ' ').split(/[^a-z+#]+/).filter(w => w.length > 1 && !NOISE.has(w));
+  return { specific: words.filter(w => !ROLE_NOUNS.has(w)).map(stem), roles: words.filter(w => ROLE_NOUNS.has(w)).map(stem) };
+}
+
+// An entry counts when it is in the same field as the posting (title words) or uses 2+ of the skills it asks for.
+// Student projects and activities count with a single shared skill: that is what student experience looks like.
+function fieldExperience(job, resume, jdSkills, { student, needYears = 0 }) {
+  const { specific, roles } = fieldOf(job.title);
+  const want = new Set(jdSkills);
+  const related = (resume.entries || []).filter(e => {
+    const t = e.text.toLowerCase();
+    const sameField = specific.length ? specific.some(s => t.includes(s)) : roles.some(s => t.includes(s));
+    return sameField || e.skills.filter(s => want.has(s)).length >= (student && e.kind !== 'job' ? 1 : 2);
+  });
+  const jobs = related.filter(e => e.kind === 'job'), projects = related.filter(e => e.kind === 'project'), acts = related.filter(e => e.kind === 'activity');
+  const years = jobs.reduce((n, e) => n + e.years, 0);
+  let score;
+  if (student) score = Math.min(1, (jobs.length ? 0.5 : 0) + (jobs.length > 1 ? 0.15 : 0) + 0.2 * Math.min(projects.length, 2) + (acts.length ? 0.1 : 0)) || 0.15;
+  else score = Math.min(1, (jobs.length ? 0.45 + 0.55 * Math.min(1, years / Math.max(1, needYears)) : 0) + 0.15 * Math.min(projects.length, 2)) || 0.1;
+
+  const parts = [jobs.length && `${jobs.length} past ${student ? 'job/internship' : 'role'}${jobs.length > 1 ? 's' : ''}${!student && years ? ` (about ${years} yr${years > 1 ? 's' : ''})` : ''}`,
+    projects.length && `${projects.length} project${projects.length > 1 ? 's' : ''}`, acts.length && `${acts.length} activit${acts.length > 1 ? 'ies' : 'y'}`].filter(Boolean);
+  const reasons = parts.length ? [`Relevant experience: ${parts.join(' + ')} in this field`] : [];
+  const flags = parts.length ? [] : [student ? 'No past jobs or projects in this field on your resume: add a class project or club work if you have one' : 'No past roles or projects in this field on your resume'];
+  if (!student && jobs.length && needYears > years + 1) flags.push(`About ${years || '<1'} yr of related work; this level usually wants ${needYears}+`);
+  return { score, reasons, flags, related: related.map(e => e.header.split(' · ')[0]).slice(0, 4) };
+}
+
+// ---------- competition: how hard this employer is to get into, relative to your profile ----------
+const DIFFICULTY = { 1: 1, 2: 0.7, 3: 0.4, 4: 0.15 };
+function competition(job, resume, { exp, skills, gpa = 0 }) {
+  const tier = companyTier(job.company, job.boardSize);
+  const best = (resume.brands || [])[0];
+  const brand = best ? { 1: 1, 2: 0.75, 3: 0.4 }[best.tier] || 0 : 0;
+  // Profile strength: related experience, skill match, brand-name employers, strong GPA (students).
+  const strength = Math.min(1, 0.45 * exp + 0.35 * skills + 0.2 * brand + (gpa >= 3.7 ? 0.1 : 0));
+  const gap = Math.max(0, 0.9 - strength);
+  const penalty = DIFFICULTY[tier] * gap * 1.6;
+  const reasons = [], flags = [];
+  if (tier <= 2) (strength >= 0.75 ? reasons : flags).push(strength >= 0.75 ? `${TIER_LABEL[tier]} company, but your profile is strong enough to compete` : `${TIER_LABEL[tier]} company: very high applicant demand, so a profile like yours has lower odds here`);
+  else if (tier === 4) reasons.push('Less crowded than big-name employers: better odds');
+  if (best && best.tier <= 2) reasons.push(`${best.name} on your resume stands out to recruiters`);
+  return { tier, penalty, odds: Math.max(0, 1 - penalty / 1.44), reasons, flags };
 }
 
 export const scoreClass = s => `s${Math.max(1, Math.min(5, Math.floor(s)))}`;

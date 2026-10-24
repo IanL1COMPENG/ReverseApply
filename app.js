@@ -4,6 +4,7 @@ import { searchJobs, parseBoardLinks, loadDetail } from './search.js';
 import { scoreJob, scoreInternship, scoreClass } from './score.js';
 import { tailorResume, resumePdf, resumeText, coverLetter, applicationAnswers } from './tailor.js';
 import { pretty } from './skills.js';
+import { TIER_LABEL } from './companies-tiers.js';
 import { runPanel, aiTailor } from './ai.js';
 
 const $ = s => document.querySelector(s);
@@ -174,13 +175,16 @@ const ago = t => {
   return h < 1 ? 'just now' : h < 24 ? `${Math.floor(h)}h ago` : `${Math.floor(h / 24)}d ago`;
 };
 
+// The card shows the few reasons that matter most: skills, related experience, then any warnings.
+const cardReasons = f => [f.reasons.find(r => /skills it asks/.test(r)), f.reasons.find(r => /^Relevant experience/.test(r)), ...f.flags.slice(0, 2)].filter(Boolean);
+
 function jobCard(j, inQueue) {
   return `<article class="job" data-id="${esc(j.id)}">
     <div class="score ${scoreClass(j.fit.score)}">${j.fit.score.toFixed(1)}<small>/ 5</small></div>
     <div>
       <h4>${esc(j.title)}</h4>
-      <div class="meta">${j.lane === 'intern' ? `<span class="tag">${esc(j.term || 'Internship')}</span>` : ''}<b>${esc(j.company)}</b><span>${esc(j.location || '—')}</span><span>${ago(j.posted)}</span><span>${esc(j.ats)}</span></div>
-      <div class="why"><b>${esc(j.fit.verdict)}</b> · ${esc([...j.fit.reasons.slice(1, 2), ...j.fit.flags].join(' · '))}${j.fit.label ? ` · matches ${esc(j.fit.label)}` : ''}</div>
+      <div class="meta">${j.lane === 'intern' ? `<span class="tag">${esc(j.term || 'Internship')}</span>` : ''}${j.fit.tier <= 2 ? `<span class="tag tag-hot">${esc(TIER_LABEL[j.fit.tier])}</span>` : ''}<b>${esc(j.company)}</b><span>${esc(j.location || '—')}</span><span>${ago(j.posted)}</span><span>${esc(j.ats)}</span></div>
+      <div class="why"><b>${esc(j.fit.verdict)}</b> · ${esc(cardReasons(j.fit).join(' · '))}${j.fit.label ? ` · matches ${esc(j.fit.label)}` : ''}</div>
     </div>
     <div class="acts">
       <button class="btn btn-small" data-act="kit">Tailor & apply</button>
@@ -285,7 +289,8 @@ async function openKit(job) {
     <div class="kit-grid">
       <div>
         <h4>Why this score</h4>
-        <div class="breakdown">${bar(f.student ? 'Field' : 'Title', f.parts.title)}${bar('Skills', f.parts.skills)}${bar(f.student ? 'Student fit' : 'Level', f.parts.seniority)}${bar('Freshness', f.parts.fresh)}</div>
+        <div class="breakdown">${bar(f.student ? 'Field' : 'Title', f.parts.title)}${bar('Skills', f.parts.skills)}${bar('Experience', f.parts.experience ?? 0)}${bar(f.student ? 'Student fit' : 'Level', f.parts.seniority)}${bar('Your odds', f.parts.odds ?? 1)}${bar('Freshness', f.parts.fresh)}</div>
+        <p class="small muted">${esc(job.company)}: <b>${esc(TIER_LABEL[f.tier] || TIER_LABEL[4])}</b> (estimated from reputation and demand).${f.related?.length ? ` Counted as relevant experience: ${esc(f.related.join('; '))}.` : ''}</p>
         <ul class="small">${[...f.reasons, ...f.flags].map(r => `<li>${esc(r)}</li>`).join('')}</ul>
         <h4>Keywords you already have <span class="muted">(moved to the top of your resume)</span></h4>
         <div class="chips">${f.matched.map(s => `<span class="chip hit">${esc(pretty(s))}</span>`).join('') || '<span class="muted small">None detected.</span>'}</div>
@@ -482,7 +487,9 @@ if (state.resume) { $('#resumeText').value = state.resume; applyResume(state.res
 if (state.prefs) writePrefs(state.prefs);
 if (state.key) { $('#apiKey').value = state.key; $('#keyStatus').textContent = 'Key saved in this browser.'; }
 $('#apiModel').value = state.model;
-if (state.jobs.length && state.parsed) { renderJobs(); $('#searchStatus').textContent = `${state.jobs.length} jobs from your last search. Run it again for the newest.`; }
-if (state.interns.length && state.parsed) { renderInterns(); $('#internStatus').textContent = `${state.interns.length} internships from your last search. Run it again for the newest.`; }
+// Re-score saved results so they always use the current scoring rules.
+if (state.parsed && (state.jobs.length || state.interns.length)) rescore();
+if (state.jobs.length && state.parsed) { $('#searchStatus').textContent = `${state.jobs.length} jobs from your last search. Run it again for the newest.`; }
+if (state.interns.length && state.parsed) { $('#internStatus').textContent = `${state.interns.length} internships from your last search. Run it again for the newest.`; }
 renderQueue();
 renderTracker();

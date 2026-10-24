@@ -47,9 +47,12 @@ const fromAshby = (slug, j) => ({
 });
 
 async function fetchBoard(ats, slug) {
-  if (ats === 'greenhouse') return (await getJson(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`)).jobs.map(j => fromGreenhouse(slug, j));
-  if (ats === 'lever') return (await getJson(`https://api.lever.co/v0/postings/${slug}?mode=json`)).map(j => fromLever(slug, j));
-  return (await getJson(`https://api.ashbyhq.com/posting-api/job-board/${slug}`)).jobs.filter(j => j.isListed !== false).map(j => fromAshby(slug, j));
+  const list = ats === 'greenhouse' ? (await getJson(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`)).jobs.map(j => fromGreenhouse(slug, j))
+    : ats === 'lever' ? (await getJson(`https://api.lever.co/v0/postings/${slug}?mode=json`)).map(j => fromLever(slug, j))
+    : (await getJson(`https://api.ashbyhq.com/posting-api/job-board/${slug}`)).jobs.filter(j => j.isListed !== false).map(j => fromAshby(slug, j));
+  // How many openings the employer has is a rough size signal for the competition estimate.
+  for (const j of list) j.boardSize = list.length;
+  return list;
 }
 
 // Fetches the full description for listings that arrive without one
