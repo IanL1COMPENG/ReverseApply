@@ -19,22 +19,41 @@ async function readPdf(file) {
   const pages = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const content = await (await doc.getPage(i)).getTextContent();
-    // Rebuild lines from text positions so bullets and headings survive.
-    const lines = [];
-    let lastY = null, line = '';
-    for (const it of content.items) {
-      const y = Math.round(it.transform[5]);
-      if (lastY !== null && Math.abs(y - lastY) > 2) { lines.push(line); line = ''; }
-      line += (line && !line.endsWith(' ') && !it.str.startsWith(' ') ? ' ' : '') + it.str;
-      lastY = y;
-    }
-    lines.push(line);
-    pages.push(lines.join('\n'));
+    pages.push(pdfLines(content.items).join('\n'));
   }
   return tidy(pages.join('\n'));
 }
 
-const tidy = t => t.replace(/\r/g, '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').split('\n').map(l => l.trim()).join('\n').trim();
+// Rebuilds lines from where text sits on the page, not the order the PDF stores it. Resumes often keep
+// right-aligned columns (dates, locations) in a separate run, so stream order would detach
+// "December 2028" from its degree line. Items sharing a baseline become one line, left to right;
+// a wide gap (a right-aligned column) becomes " | " so fields stay separate.
+export function pdfLines(items) {
+  const runs = items.filter(it => it.str && it.str.trim()).map(it => ({
+    str: it.str, x: it.transform[4], y: it.transform[5], w: it.width || 0, h: Math.abs(it.transform[3]) || it.height || 10,
+  }));
+  runs.sort((a, b) => b.y - a.y || a.x - b.x);
+  const rows = [];
+  for (const r of runs) {
+    const row = rows.find(row => Math.abs(row.y - r.y) <= Math.max(2, 0.4 * Math.min(row.h, r.h)));
+    if (row) row.items.push(r); else rows.push({ y: r.y, h: r.h, items: [r] });
+  }
+  rows.sort((a, b) => b.y - a.y);
+  return rows.map(row => {
+    const its = row.items.sort((a, b) => a.x - b.x);
+    let line = '', end = null;
+    for (const it of its) {
+      const gap = end === null ? 0 : it.x - end;
+      if (end !== null) line += gap > 4 * it.h ? ' | ' : gap > 0.2 * it.h && !line.endsWith(' ') && !it.str.startsWith(' ') ? ' ' : '';
+      line += it.str;
+      end = it.x + it.w;
+    }
+    return line;
+  });
+}
+
+// Tabs separate columns in Word documents too ("Bachelor of Science<TAB>December 2028").
+const tidy = t => t.replace(/\r/g, '').replace(/[ ]*\t+[ \t]*/g, ' | ').replace(/[ ]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').split('\n').map(l => l.trim()).join('\n').trim();
 
 const HEADINGS = {
   summary: /^(professional )?(summary|profile|objective|about( me)?)$/i,
@@ -101,21 +120,35 @@ export function parseEntries(sections) {
 const SCHOOL_RE = /universit|college|institute|school of|polytechnic/i;
 const DEGREE_RE = /\b(B\.?S\.?|B\.?A\.?|B\.?Eng|BBA|Bachelor|M\.?S\.?|M\.?A\.?|MBA|Master|Ph\.?D|Associate)\b/;
 const MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?';
+const DATE = `(?:(?:${MONTH}|Spring|Summer|Fall|Autumn|Winter)\\s+)?(?:19|20)\\d{2}`;
+const BULLET_LINE = /^\s*[•\-*▪◦●■►‣–]/;
+// Lines that carry dates which are never the graduation date.
+const NOT_GRAD = /dean'?s list|scholar|award|honou?r|recipient|president'?s list|semester|coursework|study abroad|exchange|club|society|hackathon|competition|certificat/i;
 
-// The graduation date exactly as the resume writes it, taken only from the first (current) degree:
-// its own line and the line right under it. "Expected May 2028", "Aug 2025 – May 2029", "2029".
+// The graduation date exactly as the resume writes it ("Expected May 2028", "December 2028", "2029"),
+// taken only from the current (first) degree: the school line and the next two non-bullet lines.
+// Bullets and honors lines ("Dean's List Autumn 2025 & Spring 2026") are never used.
 export function gradDateOf(edu) {
   const lines = edu.split('\n');
-  const i = lines.findIndex(l => SCHOOL_RE.test(l) || DEGREE_RE.test(l));
-  const block = (i >= 0 ? lines.slice(i, i + 2) : lines.slice(0, 2)).join('  ');
-  const date = `(?:${MONTH}\\s+)?(?:19|20)\\d{2}`;
-  const m = block.match(new RegExp(`(?:expected|anticipated|graduat\\w*|grad\\.?|class of)[:\\s]*(${date})`, 'i'))
-    || block.match(new RegExp(`${date}\\s*(?:-|–|—|to)\\s*(${date})`, 'i'))
-    || [...block.matchAll(new RegExp(`(${date})`, 'gi'))].pop();
-  if (!m) return { gradDate: '', gradYear: null };
-  const gradDate = m[1].trim();
-  return { gradDate, gradYear: +gradDate.match(/(?:19|20)\d{2}/)[0] };
+  const start = Math.max(0, lines.findIndex(l => SCHOOL_RE.test(l) || DEGREE_RE.test(l)));
+  const entry = [];
+  for (let i = start; i < lines.length && entry.length < 3; i++) {
+    const l = lines[i];
+    if (BULLET_LINE.test(l)) continue;
+    // A second school line starts an older degree: stop there.
+    if (entry.length && SCHOOL_RE.test(l) && entry.some(e => SCHOOL_RE.test(e))) break;
+    if (!NOT_GRAD.test(l)) entry.push(l);
+  }
+  const block = entry.join('  |  ');
+  const m = block.match(new RegExp(`(?:expected|anticipated|graduat\\w*|grad\\.?|class of)[:\\s]*(${DATE})`, 'i'))
+    || block.match(new RegExp(`${DATE}\\s*(?:-|–|—|to)\\s*(${DATE})`, 'i'))
+    || [...block.replace(new RegExp(`${DATE}\\s*(?:-|–|—|to)\\s*(?:present|current|now)`, 'gi'), '').matchAll(new RegExp(`(${DATE})`, 'gi'))].pop();
+  return m ? dateParts(m[1]) : { gradDate: '', gradYear: null };
 }
+export const dateParts = s => {
+  const y = (s || '').match(/(?:19|20)\d{2}/);
+  return y ? { gradDate: s.trim(), gradYear: +y[0] } : { gradDate: '', gradYear: null };
+};
 
 // School, degree, major, graduation date and GPA, for internship matching and student resumes.
 export function parseEducation(edu) {

@@ -1,5 +1,5 @@
 import { COMPANIES } from './companies.js';
-import { readResumeFile, parseResume } from './resume.js';
+import { readResumeFile, parseResume, dateParts } from './resume.js';
 import { searchJobs, parseBoardLinks, loadDetail, setReaderKey } from './search.js';
 import { scoreJob, scoreInternship, scoreClass } from './score.js';
 import { tailorResume, resumePdf, resumeText, coverLetter, applicationAnswers } from './tailor.js';
@@ -51,6 +51,7 @@ $$('.tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)
 const PROFILE_FIELDS = { name: '#pName', email: '#pEmail', phone: '#pPhone', location: '#pLocation', linkedin: '#pLinkedin', site: '#pSite', auth: '#pAuth' };
 
 function applyResume(text, fromFile) {
+  const changed = text !== state.resume;
   state.resume = text;
   state.parsed = parseResume(text);
   store.set('resume', text);
@@ -60,12 +61,39 @@ function applyResume(text, fromFile) {
     if (guessed[k] && (fromFile || !state.profile[k])) state.profile[k] = guessed[k];
     if (state.profile[k]) $(sel).value = state.profile[k];
   }
+  // Graduation date: read from the resume, unless the user corrected it for this same resume.
+  const detected = state.parsed.education.gradDate;
+  if (detected && (changed || fromFile || !state.profile.gradManual)) { state.profile.grad = detected; state.profile.gradManual = false; }
+  applyGrad();
   store.set('profile', state.profile);
   $('#skillChips').innerHTML = state.parsed.skills.map(s => `<span class="chip">${esc(pretty(s))}</span>`).join('') || '<span class="muted small">No known skills found yet. Make sure your resume has a Skills section.</span>';
   $('#skillCount').textContent = `(${state.parsed.skills.length})`;
-  $('#resumeStatus').textContent = `Loaded · ${text.split(/\s+/).length} words · about ${state.parsed.years} years of dated experience`;
+  $('#resumeStatus').textContent = `Loaded · ${text.split(/\s+/).length} words · about ${state.parsed.years} years of dated experience${state.profile.grad ? ` · graduation: ${state.profile.grad}` : ' · no graduation date found: add it in your profile if you are a student'}`;
   if (!$('#fRoles').value) $('#fRoles').value = guessRoles(text);
 }
+
+// The profile's graduation date is the one used for every score, summary, cover letter and answer.
+function applyGrad() {
+  $('#pGrad').value = state.profile.grad || '';
+  if (state.parsed) Object.assign(state.parsed.education, dateParts(state.profile.grad || ''));
+  // Saved tailored resumes and cover letters may carry an older graduation date: correct it in place.
+  const g = state.profile.grad;
+  if (!g) return;
+  let fixed = false;
+  for (const [k, v] of Object.entries(state.edits)) {
+    const nv = v.replace(/\(graduating [^)]*\)/g, `(graduating ${g})`).replace(/, graduating in [^,]*?(?:19|20)\d{2},/g, `, graduating in ${g},`);
+    if (nv !== v) { state.edits[k] = nv; fixed = true; }
+  }
+  if (fixed) store.set('edits', state.edits);
+}
+$('#pGrad').addEventListener('change', e => {
+  state.profile.grad = e.target.value.trim();
+  state.profile.gradManual = true;
+  store.set('profile', state.profile);
+  applyGrad();
+  if (state.jobs.length || state.interns.length) { state.edits = {}; store.set('edits', {}); rescore(); }
+  toast(dateParts(state.profile.grad).gradYear ? `Graduation date set to ${state.profile.grad}. Scores updated.` : 'Enter a date with a year, like "May 2028".');
+});
 
 function guessRoles(text) {
   const m = text.match(/\b(software|data|machine learning|product|frontend|backend|full[- ]stack|marketing|sales|financial|business|ux|ui|mechanical|electrical|civil|research|operations|project)\s+(engineer|analyst|scientist|manager|designer|developer|associate|specialist|intern)\b/i);
