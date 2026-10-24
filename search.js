@@ -224,15 +224,40 @@ export const isInternTitle = title => INTERN_RE.test(title);
 const GRAD_ONLY = /\b(ph\.?\s?d|doctoral|postdoc|master'?s|mba)\b/i;
 
 const GENERIC = new Set(['engineer', 'engineering', 'developer', 'analyst', 'manager', 'specialist', 'associate', 'assistant', 'coordinator', 'intern', 'internship', 'co-op', 'student', 'summer', 'junior', 'entry', 'level', 'new', 'grad']);
-const CATEGORY_HINTS = [[/software|developer|web|frontend|backend|full.?stack|mobile|swe/, /software/i], [/data|machine|learning|ml|ai|analyst|analytics|science/, /data|ai|ml/i], [/hardware|electrical|mechanical|embedded|firmware|chip|robotic/, /hardware/i], [/product/, /product/i], [/quant|trading|finance/, /quant/i]];
+// Internship-list categories a role clearly belongs to. Whole words only: "ai" must never match inside "email".
+const CATEGORY_HINTS = [
+  [/\b(software|developer|web|frontend|front end|backend|back end|full.?stack|mobile|swe)\b/, /software/i],
+  [/\b(data|data science|machine learning|ml|ai|artificial intelligence)\b/, /data|\bai\b|\bml\b/i],
+  [/\b(hardware|electrical|embedded|firmware|chip|robotics?)\b/, /hardware/i],
+  [/\bproduct (manager|management|owner|design)\b/, /product/i],
+  [/\b(quant|quantitative|trading)\b/, /quant/i],
+];
+// "marketing" ~ "Marketing", "finance" ~ "Financial": drop a common ending, then match from a word start.
+const stemOf = w => { const s = w.replace(/(ing|ers|er|ial|ics|ical|ist|s|e)$/, ''); return s.length >= 4 ? s : w; };
 
-// An internship matches when its title shares the field of a target role ("data analyst" -> "Data Science Intern").
+// Which target role an internship matches, and how closely:
+//   exact    - the title is that role ("software engineer" -> "Software Engineering Intern")
+//   field    - every key word of the role is in the title ("data analyst" -> "Data Science Intern")
+//   category - the internship list files it under that role's category
+// Returns null when it matches none of the roles.
 export function internMatcher(roles) {
   const cleaned = roles.map(r => r.replace(INTERN_RE, '').trim()).filter(Boolean);
-  const exact = titleMatcher(cleaned);
-  const words = [...new Set(cleaned.flatMap(r => r.toLowerCase().split(/[\s/,-]+/)).filter(w => w.length > 1 && !STOP.has(w) && !GENERIC.has(w)))];
-  const cats = CATEGORY_HINTS.filter(([re]) => cleaned.some(r => re.test(r.toLowerCase()))).map(([, cat]) => cat);
-  return job => !cleaned.length || exact(job.title) || words.some(w => new RegExp(`\\b${w}`, 'i').test(job.title)) || (job.category && cats.some(c => c.test(job.category)));
+  if (!cleaned.length) return () => ({ role: '', kind: 'any' });
+  const parts = cleaned.map(role => ({
+    role,
+    exact: titleMatcher([role]),
+    words: role.toLowerCase().split(/[\s/,-]+/).filter(w => w.length > 1 && !STOP.has(w) && !GENERIC.has(w)).map(stemOf),
+    cats: CATEGORY_HINTS.filter(([re]) => re.test(role.toLowerCase())).map(([, cat]) => cat),
+  }));
+  return job => {
+    const t = job.title;
+    const hit = kind => parts.find(p =>
+      kind === 'exact' ? p.exact(t)
+        : kind === 'field' ? p.words.length && p.words.every(w => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(t))
+          : job.category && p.cats.some(c => c.test(job.category)));
+    for (const kind of ['exact', 'field', 'category']) { const p = hit(kind); if (p) return { role: p.role, kind }; }
+    return null;
+  };
 }
 
 const US_STATES = 'AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split(' ');

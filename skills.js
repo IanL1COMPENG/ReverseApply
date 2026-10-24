@@ -37,7 +37,9 @@ const PATTERNS = SKILLS.map(s => ({
 }));
 
 // Short or ambiguous names need a stricter, case-sensitive check.
-const STRICT = { r: /(^|[\s,(/])R([\s,)/]|$)/, go: /\bGo(lang)?\b(?![- ]to)/, ui: /\bUI\b/, ux: /\bUX\b/, pr: /\bPR\b/, ml: /\bML\b/, ts: /\bTS\b/, js: /\bJS\b/, rest: /\bREST(ful)?\b/, lean: /\bLean\b/, spark: /\bSpark\b/, express: /\bExpress(\.js)?\b/, swift: /\bSwift\b/, rust: /\bRust\b/, dart: /\bDart\b/, epic: /\bEpic\b/, node: /\bNode(\.js)?\b/ };
+const STRICT = { r: /(^|[\s,(/])R([\s,)/]|$)/, go: /\bGo(lang)?\b(?![- ]to)/, ui: /\bUI\b/, ux: /\bUX\b/, pr: /\bPR\b/, ml: /\bML\b/, ts: /\bTS\b/, js: /\bJS\b/, rest: /\bREST(ful)?\b/, lean: /\bLean\b/, spark: /\bSpark\b/, express: /\bExpress(\.js)?\b/, swift: /\bSwift\b/, rust: /\bRust\b/, dart: /\bDart\b/, epic: /\bEpic\b/, node: /\bNode(\.js)?\b/,
+  // "Spring 2026" is a semester, not the Java framework.
+  spring: /\bSpring[\s-]?(Boot|Framework|MVC|Cloud|Security|Data|Batch)\b|\bSpring\b(?=[^\n]{0,40}\b(Java|Kotlin|Hibernate|microservices?)\b)/ };
 
 export function extractSkills(text) {
   if (!text) return [];

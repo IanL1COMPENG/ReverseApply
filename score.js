@@ -33,10 +33,12 @@ export function scoreJob(job, resume, prefs) {
   const reasons = [];
   const flags = [];
 
-  const roleHit = prefs.roles.length ? titleMatcher(prefs.roles)(job.title) : true;
+  const hitRole = prefs.roles.find(r => titleMatcher([r])(job.title));
+  const roleHit = !prefs.roles.length || !!hitRole;
   const major = degreeFit(job, resume, { student: false });
   const title = Math.min(roleHit ? 1 : 0.45, major.fit);
-  if (roleHit && prefs.roles.length) reasons.push('Title matches what you want');
+  if (hitRole) reasons.push(`Matches your target role "${hitRole}"`);
+  else if (prefs.roles.length) flags.push(`Not one of your target roles (${prefs.roles.join(', ')})`);
   reasons.push(...major.reasons); flags.push(...major.flags);
 
   const { skills, matched, missing, want } = skillFit(text, job, resume);
@@ -61,7 +63,7 @@ export function scoreJob(job, resume, prefs) {
 
   const raw = 0.2 * title + 0.3 * skills + 0.25 * exp.score + 0.15 * seniority + 0.05 + 0.05 * fresh;
   // For full-time roles, solid related work experience can stand in for the "right" degree.
-  let score = Math.min(exp.score >= 0.6 ? 5 : major.cap, 1 + 4 * raw - comp.penalty);
+  let score = Math.min(exp.score >= 0.6 ? 5 : major.cap, roleHit ? 5 : 2.8, 1 + 4 * raw - comp.penalty);
 
   if (prefs.needsSponsor && /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor/i.test(job.desc)) { score = Math.min(score, 1.8); flags.push('Says it will not sponsor visas'); }
   if (/(security|secret|ts\/sci) clearance (is )?required|active (secret|ts\/sci|top secret)/i.test(job.desc) && !/clearance/i.test(resume.text)) { score = Math.min(score, 2.4); flags.push('Requires a security clearance'); }
@@ -112,13 +114,16 @@ export function scoreInternship(job, resume, prefs) {
   const reasons = [];
   const flags = [];
 
-  const field = internMatcher(prefs.roles)(job);
-  // Exact role match ("software engineer" -> "Software Engineering Intern") beats a same-field match ("Data Intern").
-  const exact = titleMatcher(prefs.roles.map(r => r.replace(/\b(intern(ship)?|co-?op)\b/gi, '').trim()).filter(Boolean))(job.title);
+  // Which of your target roles this is, and how closely; it is named so the reason is never a mystery.
+  const m = internMatcher(prefs.roles)(job);
   const major = degreeFit(job, resume, { student: true });
   // Field = does it match what you want AND what you study.
-  const title = Math.min(exact ? 1 : field ? 0.7 : 0.4, major.fit);
-  if (field && prefs.roles.length && major.fit === 1) reasons.push('Same field as what you want');
+  const roleFit = { exact: 1, field: 0.75, category: 0.6, any: 0.7 }[m?.kind] ?? 0.3;
+  const title = Math.min(roleFit, major.fit);
+  if (m?.kind === 'exact') reasons.push(`Matches your target role "${m.role}"`);
+  else if (m?.kind === 'field') reasons.push(`Same field as your target role "${m.role}"`);
+  else if (m?.kind === 'category') reasons.push(`Listed under the same category as your target role "${m.role}"`);
+  else if (!m) flags.push(`Not one of your target roles (${prefs.roles.join(', ')})`);
   reasons.push(...major.reasons); flags.push(...major.flags);
 
   const { skills, matched, missing, want } = skillFit(text, job, resume);
@@ -149,7 +154,8 @@ export function scoreInternship(job, resume, prefs) {
   const comp = competition(job, resume, { exp: exp.score, skills, gpa: +edu.gpa || 0 });
   reasons.push(...comp.reasons); flags.push(...comp.flags);
 
-  let score = Math.min(cap, major.cap, 1 + 4 * (0.2 * title + 0.25 * skills + 0.2 * exp.score + 0.25 * student + 0.05 + 0.05 * fresh) - comp.penalty);
+  // Not one of the roles you asked for: it can't be a strong fit for you, however the rest scores.
+  let score = Math.min(cap, major.cap, m ? 5 : 2.8, 1 + 4 * (0.2 * title + 0.25 * skills + 0.2 * exp.score + 0.25 * student + 0.05 + 0.05 * fresh) - comp.penalty);
   const notUs = prefs.needsSponsor || prefs.otherCountry;
   if (notUs && (/does not offer sponsorship|citizenship is required/i.test(job.sponsorship) || /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor|u\.s\. citizen(ship)? (is )?required/i.test(job.desc))) {
     score = Math.min(score, 1.8); flags.push(job.sponsorship ? `${job.sponsorship}` : 'Will not sponsor visas');
