@@ -104,7 +104,69 @@ function gradOnlyText(desc = '') {
     && !/\b(bachelor'?s?|b\.?s\.?|b\.?a\.?|undergrad\w*|or above|or higher)\b/i.test(s));
 }
 
-const CLASS_WORDS = { freshman: 'freshmen', sophomore: 'sophomores', 'rising junior': 'rising juniors', junior: 'juniors', 'rising senior': 'rising seniors', senior: 'seniors' };
+// ---------- class year: freshman / sophomore / junior / senior ----------
+const YEARS = ['freshman', 'sophomore', 'junior', 'senior'];
+const PLURAL = { freshman: 'freshmen', sophomore: 'sophomores', junior: 'juniors', senior: 'seniors' };
+const MONTH_NUM = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12, spring: 5, summer: 8, fall: 12, autumn: 12, winter: 12 };
+// Graduation as a fractional year ("December 2028" -> 2028.92). No month written: assume May.
+function gradPoint(edu) {
+  if (!edu.gradYear) return null;
+  const word = ((edu.gradDate || '').toLowerCase().match(/[a-z]+/) || [''])[0];
+  return edu.gradYear + ((MONTH_NUM[word] ?? MONTH_NUM[word.slice(0, 3)] ?? 5) - 1) / 12;
+}
+// Class year at a point in time: under 1 year to go = senior, 1-2 = junior, 2-3 = sophomore, more = freshman.
+function standingAt(t, grad) {
+  const left = grad - t;
+  if (left <= 0) return 'graduated';
+  return YEARS[Math.max(0, 4 - Math.ceil(left))];
+}
+const nowPoint = () => { const d = new Date(); return d.getFullYear() + d.getMonth() / 12; };
+// When the internship starts: "Summer 2027" -> June 2027; no term given -> next June.
+function termPoint(job) {
+  const m = `${job.term || ''} ${job.title}`.match(/\b(spring|summer|fall|autumn|winter)\s+(20\d{2})\b/i);
+  if (m) return +m[2] + { spring: 0, winter: 0, summer: 5 / 12, fall: 8 / 12, autumn: 8 / 12 }[m[1].toLowerCase()];
+  const n = nowPoint();
+  return Math.floor(n) + (n % 1 < 5 / 12 ? 0 : 1) + 5 / 12;
+}
+const levelOf = w => YEARS.find(y => w.toLowerCase().startsWith(y.slice(0, 5))) || { first: 'freshman', second: 'sophomore', third: 'junior', fourth: 'senior', final: 'senior' }[w.toLowerCase()];
+
+// Which class years a posting accepts. "Juniors and seniors" means students in that year now (while applying);
+// "rising juniors" means students who will be juniors once the internship ends. Only counts sentences about
+// students, so "work with senior engineers" is ignored.
+function acceptedYears(desc = '') {
+  if (/\b(all|any) (class )?years\b|\bfreshm[ae]n through seniors\b|\ball (academic )?levels\b|\bany year of study\b/i.test(desc)) return [];
+  const out = [];
+  for (const s of desc.split(/(?<=[.!?\n•;])\s+/)) {
+    if (!/\b(students?|undergrad\w*|class|years?|college|university|enrolled|pursuing|rising|graduating|majors?|open to|eligible|only|intended for|reserved for|program|for)\b/i.test(s)) continue;
+    for (const m of s.matchAll(/\b(rising|graduating)\s+((?:freshm[ae]n|sophomores?|juniors?|seniors?)(?:(?:\s*,\s*|\s+(?:and|or|&|\/)\s+|\s*\/\s*)(?:freshm[ae]n|sophomores?|juniors?|seniors?))*)/gi)) {
+      for (const w of m[2].split(/\s*(?:,|\band\b|\bor\b|&|\/)\s*/i).filter(Boolean)) out.push({ level: levelOf(w), rising: /rising/i.test(m[1]) });
+    }
+    const plain = s.replace(/\b(rising|graduating)\s+(?:freshm[ae]n|sophomores?|juniors?|seniors?)(?:(?:\s*,\s*|\s+(?:and|or|&|\/)\s+|\s*\/\s*)(?:freshm[ae]n|sophomores?|juniors?|seniors?))*/gi, '');
+    for (const m of plain.matchAll(/\b(freshmen|sophomores|juniors|seniors)\b|\b(freshman|sophomore|junior|senior)[- ](?:year|standing|class|students?|undergrad\w*)\b|\b(first|second|third|fourth|final)[- ]year (?:students?|undergrad\w*)\b/gi)) {
+      out.push({ level: levelOf(m[1] || m[2] || m[3]), rising: false });
+    }
+  }
+  return out.filter(o => o.level);
+}
+
+// Do you fit the class years the posting names? Graduation years named in the posting take priority.
+function classFit(job, edu, gradYearMatches) {
+  const grad = gradPoint(edu);
+  const wanted = acceptedYears(job.desc);
+  if (!grad || !wanted.length) return null;
+  const nowYear = standingAt(nowPoint(), grad);
+  const risingYear = standingAt(termPoint(job) + 3 / 12, grad);
+  const ok = wanted.some(w => w.level === (w.rising ? risingYear : nowYear));
+  const label = [...new Set(wanted.map(w => `${w.rising ? 'rising ' : ''}${PLURAL[w.level]}`))].join(', ').replace(/, ([^,]*)$/, ' and $1');
+  const when = job.term ? job.term.split(',')[0] : 'the internship';
+  const you = [
+    wanted.some(w => !w.rising) && (nowYear === 'graduated' ? "you've graduated" : `you're a ${nowYear} now`),
+    wanted.some(w => w.rising) && (risingYear === 'graduated' ? `you'll have graduated by ${when}` : `you'll be a rising ${risingYear} by ${when}`),
+  ].filter(Boolean).join(' and ');
+  if (ok) return { ok: true, text: `Open to ${label}: ${you}, so you qualify` };
+  if (gradYearMatches) return { ok: true, text: `Says ${label}, but it also lists the class of ${edu.gradYear}, which is you` };
+  return { ok: false, text: `Only for ${label}; ${you} (graduating ${edu.gradDate})` };
+}
 
 // Internships are scored on student fit (enrolled, graduation year, degree level) instead of years of experience.
 export function scoreInternship(job, resume, prefs) {
@@ -136,10 +198,11 @@ export function scoreInternship(job, resume, prefs) {
   if (grad && grad < now) { student = 0.35; cap = 2.5; flags.push(`Internships want current students; your resume shows you graduated in ${grad}`); }
   else if (grad && wantYears.length && !wantYears.includes(grad)) { student = 0.3; cap = 2.9; flags.push(`Wants students graduating ${wantYears.join(' or ')}; you graduate ${grad}`); }
   else if (grad && wantYears.includes(grad)) reasons.push(`Looking for the class of ${grad}: that's you`);
-  else if (grad) reasons.push(`Open to students; you graduate ${grad}`);
+  else if (grad) reasons.push(`No graduation-year limit listed; you graduate ${edu.gradDate || grad}`);
   if (!edu.gradStudent && (/\b(ph\.?\s?d|doctoral|master'?s (student|candidate|program))\b/i.test(job.title) || /\b(MS|M\.S\.|PhD)\b/.test(job.title) || gradOnlyText(job.desc))) { student = Math.min(student, 0.25); cap = Math.min(cap, 2.5); flags.push('Meant for graduate students'); }
-  const cls = Object.keys(CLASS_WORDS).find(c => new RegExp(`\\b${c}s?\\b`, 'i').test(job.desc || ''));
-  if (cls) reasons.push(`Open to ${CLASS_WORDS[cls]}`);
+  const cls = classFit(job, edu, grad && wantYears.includes(grad));
+  if (cls?.ok) reasons.push(cls.text);
+  else if (cls) { student = Math.min(student, 0.3); cap = Math.min(cap, 2.5); flags.push(cls.text); }
   const gpaMin = +((job.desc || '').match(/(?:minimum|min\.?|at least)[^.\n]{0,20}?([23]\.\d)\s*(?:\/\s*4\.0\s*)?gpa|gpa[^.\n]{0,20}?(?:of|minimum)?\s*([23]\.\d)\s*(?:or (?:higher|above)|\+)/i) || []).slice(1).find(Boolean) || 0;
   if (gpaMin && edu.gpa && +edu.gpa < gpaMin) { student = Math.min(student, 0.4); cap = Math.min(cap, 2.9); flags.push(`Asks for a ${gpaMin}+ GPA; yours is ${edu.gpa}`); }
   else if (gpaMin && edu.gpa) reasons.push(`Your ${edu.gpa} GPA meets its ${gpaMin} minimum`);
