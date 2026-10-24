@@ -110,7 +110,7 @@ function gradOnlyText(desc = '') {
 
 // ---------- class year: freshman / sophomore / junior / senior ----------
 const YEARS = ['freshman', 'sophomore', 'junior', 'senior'];
-const PLURAL = { freshman: 'freshmen', sophomore: 'sophomores', junior: 'juniors', senior: 'seniors' };
+const PLURAL = { freshman: 'freshmen', sophomore: 'sophomores', junior: 'juniors', senior: 'seniors', grad: 'graduate students' };
 const MONTH_NUM = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12, spring: 5, summer: 8, fall: 12, autumn: 12, winter: 12 };
 // Graduation as a fractional year ("December 2028" -> 2028.92). No month written: assume May.
 function gradPoint(edu) {
@@ -132,8 +132,7 @@ function termPoint(job) {
   const n = nowPoint();
   return Math.floor(n) + (n % 1 < 5 / 12 ? 0 : 1) + 5 / 12;
 }
-const levelOf = w => YEARS.find(y => w.toLowerCase().startsWith(y.slice(0, 5))) || { first: 'freshman', second: 'sophomore', third: 'junior', fourth: 'senior', final: 'senior' }[w.toLowerCase()];
-
+const levelOf = w => YEARS.find(y => w.toLowerCase().startsWith(y.slice(0, 5))) || { first: 'freshman', '1st': 'freshman', second: 'sophomore', '2nd': 'sophomore', third: 'junior', '3rd': 'junior', fourth: 'senior', '4th': 'senior', final: 'senior' }[w.toLowerCase()];
 // Which class years a posting accepts. "Juniors and seniors" means students in that year now (while applying);
 // "rising juniors" means students who will be juniors once the internship ends. Only counts sentences about
 // students, so "work with senior engineers" is ignored.
@@ -151,9 +150,15 @@ function acceptedYears(desc = '') {
       for (const w of m[2].split(/\s*(?:,|\band\b|\bor\b|&|\/)\s*/i).filter(Boolean)) out.push({ level: levelOf(w), rising: /rising/i.test(m[1]) });
     }
     const plain = s.replace(/\b(rising|graduating)\s+(?:freshm[ae]n|sophomores?|juniors?|seniors?)(?:(?:\s*,\s*|\s+(?:and|or|&|\/)\s+|\s*\/\s*)(?:freshm[ae]n|sophomores?|juniors?|seniors?))*/gi, '');
-    for (const m of plain.matchAll(/\b(freshmen|sophomores|juniors|seniors)\b|\b(freshman|sophomore|junior|senior)[- ](?:year|standing|class|students?|undergrad\w*)\b|\b(first|second|third|fourth|final)[- ]year (?:students?|undergrad\w*)\b/gi)) {
-      out.push({ level: levelOf(m[1] || m[2] || m[3]), rising: false });
+    for (const m of plain.matchAll(/\b(freshmen|sophomores|juniors|seniors)\b|\b(freshman|sophomore|junior|senior)[- ](?:year|standing|class|students?|undergrad\w*)\b/gi)) {
+      out.push({ level: levelOf(m[1] || m[2]), rising: false });
     }
+    // "third-year students", "in their third year of undergrad", "3rd year of college", "final year of study"
+    for (const m of plain.matchAll(/\b(first|second|third|fourth|final|1st|2nd|3rd|4th)[- ]year\b(?=\s+(?:students?|undergrad\w*|of\b|in\b|college|university|standing)|[,.;)]|\s*$)/gi)) {
+      out.push({ level: levelOf(m[1]), rising: false });
+    }
+    // "...or students pursuing an advanced degree": graduate students are accepted too.
+    if (out.length > before && /\b(?:pursuing|enrolled in|working toward)\s+an?\s+(?:advanced|graduate|master'?s|ph\.?\s?d)\b|\bgraduate students\b/i.test(s)) out.push({ level: 'grad', rising: false });
     for (let i = before; i < out.length; i++) { out[i].rising ??= false; out[i].preferred = preferred; }
   }
   return out.filter(o => o.level);
@@ -166,7 +171,7 @@ function classFit(job, edu, gradYearMatches) {
   if (!grad || !wanted.length) return null;
   const nowYear = standingAt(nowPoint(), grad);
   const risingYear = standingAt(termPoint(job) + 3 / 12, grad);
-  const ok = wanted.some(w => w.level === (w.rising ? risingYear : nowYear));
+  const ok = wanted.some(w => (w.level === 'grad' ? !!edu.gradStudent : w.level === (w.rising ? risingYear : nowYear)));
   const label = [...new Set(wanted.map(w => `${w.rising ? 'rising ' : ''}${PLURAL[w.level]}`))].join(', ').replace(/, ([^,]*)$/, ' and $1');
   const when = job.term ? job.term.split(',')[0] : 'the internship';
   const you = [
@@ -273,7 +278,9 @@ function fieldExperience(job, resume, jdSkills, { student, needYears = 0 }) {
     const techProject = student && e.kind !== 'job' && TECH_TITLE.test(job.title) && e.skills.some(s => TECH_SKILLS.includes(s) || /react|node|django|flask|api|html|css/.test(s));
     return sameField || techProject || e.skills.filter(s => want.has(s)).length >= (student && e.kind !== 'job' ? 1 : 2);
   });
-  const jobs = related.filter(e => e.kind === 'job'), projects = related.filter(e => e.kind === 'project'), acts = related.filter(e => e.kind === 'activity');
+  // A club or activity entry with a real role ("Software Developer, HackOHI/O Tech Team") counts like a job.
+  const roleLike = e => e.kind === 'activity' && /\b(developer|engineer|intern|analyst|manager|assistant|designer|researcher|consultant|director|coordinator|lead|chair|president|officer|tutor|instructor)\b/i.test(e.header);
+  const jobs = related.filter(e => e.kind === 'job' || roleLike(e)), projects = related.filter(e => e.kind === 'project'), acts = related.filter(e => e.kind === 'activity' && !roleLike(e));
   const years = jobs.reduce((n, e) => n + e.years, 0);
   let score;
   if (student) score = Math.min(1, (jobs.length ? 0.5 : 0) + (jobs.length > 1 ? 0.15 : 0) + 0.2 * Math.min(projects.length, 2) + (acts.length ? 0.1 : 0)) || 0.15;

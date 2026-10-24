@@ -56,14 +56,14 @@ export function pdfLines(items) {
 const tidy = t => t.replace(/\r/g, '').replace(/[ ]*\t+[ \t]*/g, ' | ').replace(/[ ]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').split('\n').map(l => l.trim()).join('\n').trim();
 
 const HEADINGS = {
-  summary: /^(professional )?(summary|profile|objective|about( me)?)$/i,
-  experience: /^(work |professional |relevant )?(experience|employment( history)?|work history)$/i,
-  projects: /^(projects?|personal projects|selected projects|academic projects)$/i,
+  summary: /^(professional |career )?(summary|profile|objective|about( me)?)$/i,
+  experience: /^((work|professional|relevant|additional|research|technical|industry|internship|other|related|engineering|teaching|clinical) )?(experiences?|employment( history)?|work history|internships?)$/i,
+  projects: /^((personal|selected|academic|engineering|technical|software|research|relevant|class|course|key|independent|side|design|coding) )?projects?( (&|and) [a-z ]{3,30})?$/i,
   education: /^(education|academics?|academic background|education (&|and) [a-z ]{3,30})$/i,
-  skills: /^(technical |core )?(skills|competencies|technologies|skills & interests|tools)$/i,
-  certifications: /^(certifications?|licenses|certificates)$/i,
-  leadership: /^(leadership|activities|leadership & activities|involvement|volunteer(ing)?( experience)?)$/i,
-  awards: /^(awards|honors|achievements|honors & awards)$/i,
+  skills: /^((technical|core|key|relevant|additional|computer|professional) )?(skills|competencies|technologies|tools)( (&|and) [a-z ]{3,30})?$|^languages( (&|and) [a-z ]{3,20})?$/i,
+  certifications: /^(certifications?|licenses|certificates)( (&|and) [a-z ]{3,30})?$/i,
+  leadership: /^(leadership( (&|and) [a-z ]{3,30}| experience)?|activities( (&|and) [a-z ]{3,30})?|campus involvement|involvements?|extracurriculars?( activities)?|clubs( (&|and) organizations)?|organizations|volunteer(ing)?( experience| work)?|community (service|involvement)|service)$/i,
+  awards: /^(awards|honors|achievements)( (&|and) [a-z ]{3,30})?$/i,
 };
 
 // Text copied out of a PDF viewer often drops the right-hand column (locations, dates) as a block further
