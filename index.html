@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReverseApply</title>
+<meta name="description" content="Upload your resume once. ReverseApply searches company career pages directly, rates every job 1-5 for you, tailors your resume to each posting and builds the application for you. Free.">
+<meta property="og:title" content="ReverseApply — the jobs apply to you">
+<meta property="og:description" content="Search hundreds of company career pages at once, get a 1-5 fit score on every job, and a tailored resume PDF for each one. Free, no account.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2311181c'/><path d='M9 22V10h7a4 4 0 0 1 0 8h-7m7 0 5 4' stroke='%23c6f432' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="#top"><span class="logo">R</span>ReverseApply</a>
+  <nav>
+    <a href="#how">How it works</a>
+    <a href="#compare">Compare</a>
+    <a href="#app" class="btn btn-small">Start free</a>
+  </nav>
+</header>
+
+<main id="top">
+<section class="hero">
+  <p class="eyebrow">Free · no account · your data stays in your browser</p>
+  <h1>Stop applying to jobs.<br><em>Let the jobs come to you.</em></h1>
+  <p class="lede">Upload your resume once. ReverseApply searches <strong id="companyCount">190+</strong> company career pages directly, scores every opening 1 to 5 for <em>you</em>, rewrites your resume around each job's keywords, and builds a ready-to-send application, PDF included.</p>
+  <div class="hero-cta">
+    <a href="#app" class="btn btn-big">Upload my resume</a>
+    <a href="#how" class="btn btn-ghost">See how it works</a>
+  </div>
+  <div class="hero-stats">
+    <div><b>Direct</b><span>from company hiring systems, not reposted listings</span></div>
+    <div><b>1–5</b><span>fit score on every job, with the reasons</span></div>
+    <div><b>1 click</b><span>tailored resume PDF per job</span></div>
+  </div>
+</section>
+
+<section id="how" class="how">
+  <h2>Four steps. You do the first one.</h2>
+  <ol class="steps">
+    <li><span>01</span><h3>Drop your resume</h3><p>PDF, Word or text. It's read in your browser and never uploaded to us; there is no "us" server.</p></li>
+    <li><span>02</span><h3>We search at the source</h3><p>Hundreds of employers' own job boards (Greenhouse, Lever, Ashby) plus remote job feeds, all at once. New postings show up here as soon as the company publishes them.</p></li>
+    <li><span>03</span><h3>Every job gets a score</h3><p>5/5 means apply now. Below 4 we tell you why to skip it. Scores weigh your title, skills, seniority and location against the posting.</p></li>
+    <li><span>04</span><h3>Tailored and ready</h3><p>Your resume is reordered and reworded around the keywords the company's screening software looks for, exported as a clean PDF, with your answers and cover letter ready. Autopilot can fill the forms for you.</p></li>
+  </ol>
+</section>
+
+<section id="app" class="app">
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="resume" role="tab">1 · Resume</button>
+    <button class="tab" data-tab="prefs" role="tab">2 · What you want</button>
+    <button class="tab" data-tab="jobs" role="tab">3 · Jobs <span id="jobsBadge" class="badge" hidden></span></button>
+    <button class="tab" data-tab="queue" role="tab">4 · Apply <span id="queueBadge" class="badge" hidden></span></button>
+    <button class="tab" data-tab="panel" role="tab">5 · Resume panel</button>
+  </div>
+
+  <!-- 1. Resume -->
+  <div class="pane active" id="pane-resume">
+    <div class="grid2">
+      <div>
+        <label class="drop" id="drop">
+          <input type="file" id="resumeFile" accept=".pdf,.docx,.txt,.md" hidden>
+          <strong>Drop your resume here</strong>
+          <span>or click to choose · PDF, DOCX or TXT</span>
+        </label>
+        <p class="muted small">Or paste it:</p>
+        <textarea id="resumeText" rows="14" placeholder="Paste your resume text here..."></textarea>
+        <div class="row">
+          <button class="btn" id="saveResume">Use this resume</button>
+          <span id="resumeStatus" class="muted small"></span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Your profile</h3>
+        <p class="muted small">Pulled from your resume. Fix anything wrong; it goes on every application.</p>
+        <div class="form">
+          <label>Full name<input id="pName"></label>
+          <label>Email<input id="pEmail" type="email"></label>
+          <label>Phone<input id="pPhone"></label>
+          <label>Location<input id="pLocation" placeholder="City, State"></label>
+          <label>LinkedIn<input id="pLinkedin" placeholder="https://linkedin.com/in/..."></label>
+          <label>Website / GitHub<input id="pSite"></label>
+          <label>Work authorization<select id="pAuth"><option>Authorized to work in the US</option><option>Need visa sponsorship</option><option>Authorized (other country)</option></select></label>
+        </div>
+        <h4>Skills we found <span id="skillCount" class="muted"></span></h4>
+        <div id="skillChips" class="chips"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Preferences -->
+  <div class="pane" id="pane-prefs">
+    <div class="grid2">
+      <div class="card">
+        <h3>What are you applying for?</h3>
+        <div class="form">
+          <label>Target roles <small>(comma separated)</small><input id="fRoles" placeholder="software engineer, data analyst"></label>
+          <label>Must-have keywords <small>(optional)</small><input id="fKeywords" placeholder="python, react"></label>
+          <label>Exclude titles with<input id="fExclude" placeholder="senior, staff, manager"></label>
+          <label>Where<select id="fWhere"><option value="any">Anywhere</option><option value="remote">Remote only</option><option value="us">United States (incl. remote US)</option><option value="custom">Specific places…</option></select></label>
+          <label id="fPlacesWrap" hidden>Places <small>(comma separated)</small><input id="fPlaces" placeholder="New York, San Francisco, Austin"></label>
+          <label>Level<select id="fLevel"><option value="auto">Match my resume</option><option value="intern">Internship</option><option value="entry">Entry / new grad</option><option value="mid">Mid</option><option value="senior">Senior+</option></select></label>
+          <label>Posted within<select id="fAge"><option value="3">3 days</option><option value="7">7 days</option><option value="14" selected>14 days</option><option value="30">30 days</option><option value="9999">Any time</option></select></label>
+        </div>
+        <div class="checks">
+          <label><input type="checkbox" id="srcAts" checked> Company career pages (<span class="cc">190+</span> employers)</label>
+          <label><input type="checkbox" id="srcRemote" checked> Remote job feeds (Remotive, Jobicy, Arbeitnow)</label>
+        </div>
+        <button class="btn btn-big" id="runSearch">Find my jobs</button>
+      </div>
+      <div class="card">
+        <h3>Add companies you want</h3>
+        <p class="muted small">Paste any company's job board link (Greenhouse, Lever or Ashby) and it's searched too. Example: <code>https://jobs.lever.co/spotify</code></p>
+        <textarea id="extraBoards" rows="5" placeholder="https://boards.greenhouse.io/yourdreamco&#10;https://jobs.ashbyhq.com/another"></textarea>
+        <h3 class="mt">AI boost <span class="pill">optional</span></h3>
+        <p class="muted small">Everything works without AI. Add your own Anthropic API key to unlock the 7-reviewer resume panel, deep job scoring, full resume rewrites and cover letters. The key is stored only in this browser and sent only to Anthropic.</p>
+        <div class="form">
+          <label>Anthropic API key<input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off"></label>
+          <label>Model<select id="apiModel"><option value="claude-sonnet-5-5">Claude Sonnet 5.5 (best value)</option><option value="claude-opus-5-5">Claude Opus 5.5 (strongest)</option><option value="claude-haiku-5-5">Claude Haiku 5.5 (fastest)</option></select></label>
+        </div>
+        <div class="row"><button class="btn btn-ghost" id="saveKey">Save key</button><button class="btn btn-ghost" id="clearKey">Forget key</button><span id="keyStatus" class="muted small"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Jobs -->
+  <div class="pane" id="pane-jobs">
+    <div class="jobs-head">
+      <div id="searchStatus" class="muted">Run a search from step 2.</div>
+      <div class="progress" id="progress" hidden><div></div></div>
+      <div class="filters">
+        <label>Min score <select id="minScore"><option value="1">All</option><option value="3">3+</option><option value="4" selected>4+</option><option value="4.5">4.5+</option></select></label>
+        <label>Sort <select id="sortBy"><option value="score">Best fit</option><option value="new">Newest</option></select></label>
+        <input id="jobFilter" placeholder="Filter results…">
+        <button class="btn btn-small" id="queueTop">Queue all 4+</button>
+      </div>
+    </div>
+    <div id="jobList" class="job-list"></div>
+  </div>
+
+  <!-- 4. Queue -->
+  <div class="pane" id="pane-queue">
+    <div class="card">
+      <h3>Apply queue</h3>
+      <p class="muted small">Each job gets its own tailored resume PDF and answers. Open one to review it and apply, or export the whole queue to <strong>Autopilot</strong>, a free helper that opens each application and fills it in for you (setup is one command, see below).</p>
+      <div class="row">
+        <button class="btn" id="exportPack">Export Autopilot pack</button>
+        <button class="btn btn-ghost" id="downloadAll">Download all PDFs</button>
+        <button class="btn btn-ghost" id="clearQueue">Clear queue</button>
+      </div>
+      <details class="mt"><summary>How to run Autopilot (2 minutes, once)</summary>
+        <ol class="small">
+          <li>Install <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a>.</li>
+          <li>Download this project: <a id="zipLink" href="#" target="_blank" rel="noopener">ReverseApply.zip</a>, unzip it, and open a terminal in that folder.</li>
+          <li>Run <code>npm install</code> once.</li>
+          <li>Put your exported <code>reverseapply-pack.json</code> in that folder and run <code>npm start</code>. It opens each application, fills your details and uploads the tailored PDF. Add <code>-- --submit</code> to have it press Submit too when a form has no extra questions or CAPTCHA.</li>
+        </ol>
+      </details>
+    </div>
+    <div id="queueList" class="job-list"></div>
+    <div class="card mt">
+      <h3>Tracker</h3>
+      <table class="tracker"><thead><tr><th>Date</th><th>Company</th><th>Role</th><th>Score</th><th>Status</th></tr></thead><tbody id="trackerBody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- 5. Panel -->
+  <div class="pane" id="pane-panel">
+    <div class="grid2">
+      <div class="card">
+        <h3>Instant resume check <span class="pill">free</span></h3>
+        <p class="muted small">The same checks screening software runs before a human ever sees your resume.</p>
+        <button class="btn" id="runCheck">Check my resume</button>
+        <div id="checkOut" class="mt"></div>
+      </div>
+      <div class="card">
+        <h3>The 7-reviewer panel <span class="pill">AI</span></h3>
+        <p class="muted small">Seven AI reviewers try to reject your resume first: the screening bot, the recruiter, the hiring manager, a future teammate, the CEO, a competing applicant and a skeptical HR lead. Then a fixer rebuilds it with every issue addressed, without inventing anything.</p>
+        <label class="small">Aim it at a role (optional)<input id="panelRole" placeholder="e.g. Data Analyst at Stripe"></label>
+        <button class="btn" id="runPanel">Run the panel</button>
+        <div id="panelOut" class="mt"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="compare" class="compare">
+  <h2>Why not just use the big job sites?</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>ReverseApply</th><th>LinkedIn / Handshake</th><th>Paid auto-apply tools</th></tr></thead>
+    <tbody>
+      <tr><td>Where jobs come from</td><td class="yes">Employer's own hiring system</td><td>Reposts and sponsored listings</td><td>Mixed boards</td></tr>
+      <tr><td>Fit score on every job</td><td class="yes">1–5 with reasons</td><td class="no">Limited</td><td>Sometimes</td></tr>
+      <tr><td>Resume tailored per job</td><td class="yes">Yes, with keyword report</td><td class="no">No</td><td>Usually generic</td></tr>
+      <tr><td>Tailored PDF per job</td><td class="yes">Yes</td><td class="no">No</td><td>Sometimes</td></tr>
+      <tr><td>Tells you to skip bad fits</td><td class="yes">Yes, below 4/5</td><td class="no">No</td><td class="no">No, it sprays everything</td></tr>
+      <tr><td>Price</td><td class="yes">Free</td><td>Premium is paid</td><td>$30–$100/month</td></tr>
+      <tr><td>Your data</td><td class="yes">Stays in your browser</td><td>Their servers</td><td>Their servers</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted small center">ReverseApply isn't affiliated with LinkedIn, Handshake or any employer. Nobody can honestly promise you an interview; what we do is put your best-matched, best-tailored applications in front of companies first.</p>
+</section>
+</main>
+
+<footer>
+  <p>ReverseApply · open source · <a href="https://github.com/" id="repoLink" target="_blank" rel="noopener">GitHub</a></p>
+  <p class="muted small">Inspired by <a href="https://github.com/career-ops-hq/career-ops" target="_blank" rel="noopener">career-ops</a>. Quality over quantity: we never add skills you don't have.</p>
+</footer>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-box">
+    <button class="modal-x" id="modalX" aria-label="Close">×</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

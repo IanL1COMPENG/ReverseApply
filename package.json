@@ -1,0 +1,14 @@
+{
+  "name": "reverseapply-autopilot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fills job applications from a ReverseApply pack.",
+  "scripts": {
+    "postinstall": "playwright install chromium",
+    "start": "node autopilot.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.48.2"
+  }
+}
