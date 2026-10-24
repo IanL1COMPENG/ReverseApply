@@ -125,41 +125,88 @@ function standingAt(t, grad) {
   return YEARS[Math.max(0, 4 - Math.ceil(left))];
 }
 const nowPoint = () => { const d = new Date(); return d.getFullYear() + d.getMonth() / 12; };
-// When the internship starts: "Summer 2027" -> June 2027; no term given -> next June.
+// When the internship starts: "Summer 2027" -> June 2027; no term given -> next June. A listing still tagged
+// with a term that already ended (a reposted "Summer 2026" in October 2026) means the next one.
 function termPoint(job) {
-  const m = `${job.term || ''} ${job.title}`.match(/\b(spring|summer|fall|autumn|winter)\s+(20\d{2})\b/i);
-  if (m) return +m[2] + { spring: 0, winter: 0, summer: 5 / 12, fall: 8 / 12, autumn: 8 / 12 }[m[1].toLowerCase()];
   const n = nowPoint();
+  const m = `${job.term || ''} ${job.title}`.match(/\b(spring|summer|fall|autumn|winter)\s+(20\d{2})\b/i);
+  if (m) {
+    let t = +m[2] + { spring: 0, winter: 0, summer: 5 / 12, fall: 8 / 12, autumn: 8 / 12 }[m[1].toLowerCase()];
+    while (t + 3 / 12 < n) t += 1;
+    return t;
+  }
   return Math.floor(n) + (n % 1 < 5 / 12 ? 0 : 1) + 5 / 12;
 }
-const levelOf = w => YEARS.find(y => w.toLowerCase().startsWith(y.slice(0, 5))) || { first: 'freshman', '1st': 'freshman', second: 'sophomore', '2nd': 'sophomore', third: 'junior', '3rd': 'junior', fourth: 'senior', '4th': 'senior', final: 'senior' }[w.toLowerCase()];
+// "third", "3rd", "final" and "penultimate" (of a four-year degree) as class years.
+const ORDINAL = { first: 0, '1st': 0, second: 1, '2nd': 1, third: 2, '3rd': 2, fourth: 3, '4th': 3, final: 3, last: 3, penultimate: 2, prefinal: 2, 'pre-final': 2 };
+const levelOf = w => { const x = w.toLowerCase().replace(/[- ]year$/, ''); return YEARS.find(y => x.startsWith(y.slice(0, 5))) || YEARS[ORDINAL[x]]; };
+const CW = String.raw`(?:freshm[ae]n|sophomores?|juniors?|seniors?|(?:first|second|third|fourth|final|last|penultimate|pre-?final|1st|2nd|3rd|4th)(?:[- ]year)?)`;
+const GROUP_RE = new RegExp(String.raw`\b${CW}\b(?:(?:\s*[,\/&]\s*(?:(?:and|or|as well as)\s+)?|\s+(?:and|or|as well as)\s+)${CW}\b)*`, 'gi');
+// Words after "senior"/"junior" that make it a job level, not a class year ("senior engineers", "junior developer").
+const ROLE_AFTER = /^[\s-]*(?:(?:software|data|product|research|hardware|business|level)\s+)?(?:engineers?|developers?|managers?|mentors?|leaders?|leadership|staff|scientists?|analysts?|executives?|directors?|vice|vp|associates?|consultants?|designers?|professionals?|team|members?|partners?|colleagues|management|roles?|positions?|interns?|internships?|citizens|living|care|centers?|technicians?|specialists?|architects?|counsel|advisors?|officers?|accountants?|recruiters?|quants?|traders?|researchers?|programmers?|devs?|swes?|ics?|people|folks|employees|peers|coworkers|thesis|design|project)\b/i;
+const ORD_NOT_SCHOOL = /^\s*(?:[- ]?year\s+)?(?:of (?:the |our |this )?(?:program|programme|role|internship|fellowship|service|employment|operations?|business)|in a row|consecutive|running)\b/i;
+const ACCEPT_AFTER = /^(?:[- ](?:year|level)\b|\s+(?:standing|class|students?|undergrad\w*|majors?|majoring|pursuing|year|coursework|courses|results|in (?:college|school|university|their|an?|the)\b|of (?:study|school|college|university|undergrad\w*|(?:your |their |an? |the )?(?:bachelor|degree|undergrad|engineering|university|college|studies)|[\w'’]+ (?:courses|coursework|degree|program))))/i;
+const HEAD_CUE = /(?:\b(?:an?|current(?:ly)?(?: an?)?|college|undergrad(?:uate)?s?|rising|entering|heading into|going into|incoming|at least(?: an?)?|minimum(?: of)?|be(?: an?)?|as(?: an?)?|level:?|their|your|complet(?:ion|ed)(?: of)?|obtained|for)\s*\(?)$/i;
+const RISING_HEAD = /\b(?:rising|entering|heading into|going into|incoming|will be)\s+(?:(?:their|your|the|an?|undergrad(?:uate)?|college|at least)\s+){0,2}$/i;
+const COMPLETED_HEAD = /\b(?:complet(?:ion|ed)|finish(?:ed)?)\s+(?:of\s+)?(?:at least\s+)?(?:(?:their|your|the|an?|undergrad(?:uate)?|college)\s+){0,2}$/i;
+const AT_LEAST_HEAD = /\b(?:at least|minimum(?: of)?|obtained)\s+(?:an?\s+|the\s+)?(?:rising\s+)?$/i;
+const GRAD_TOO = /\b(?:grad(?:uate)? students?|grad student|master['’]?s(?:\s+(?:students?|program|candidates?|level))|ms[- ]level|ph\.?\s?d\.?\s+(?:students?|candidates?)|mba students?|(?:pursuing|enrolled in|working toward)\s+an?\s+(?:advanced|graduate|master['’]?s|ph\.?\s?d))\b/i;
 // Which class years a posting accepts. "Juniors and seniors" means students in that year now (while applying);
-// "rising juniors" means students who will be juniors once the internship ends. Only counts sentences about
-// students, so "work with senior engineers" is ignored.
+// "rising juniors" / "entering their junior year" means students who will be juniors once the internship ends.
+// Only counts sentences about students, so "work with senior engineers" is ignored.
 function acceptedYears(desc = '') {
-  if (/\b(all|any) (class )?years\b|\bfreshm[ae]n through seniors\b|\ball (academic )?levels\b|\bany year of study\b/i.test(desc)) return [];
-  const out = [];
+  // "Open to all class years" lifts the limit; "employees of all levels" is about the company, not students.
+  if (/\b(?:all|any) class years?\b|\bfreshm[ae]n through seniors\b|\bany year of (?:study|school|college)\b|\bstudents (?:at|in|of|from) (?:all|any) (?:academic |class )?(?:levels|years|stages)\b|\b(?:all|any) (?:academic )?(?:years|levels|stages) of (?:study|school|college|undergrad\w*)\b|\bstudents at any stage\b/i.test(desc)) return [];
+  const out = [], excluded = [];
   for (const s of desc.split(/(?<=[.!?\n•;])\s+/)) {
-    if (!/\b(students?|undergrad\w*|class|years?|college|university|enrolled|pursuing|rising|graduating|majors?|open to|eligible|only|intended for|reserved for|program|for|upperclass\w*|underclass\w*)\b/i.test(s)) continue;
+    if (!/\b(students?|undergrad\w*|college|university|universities|enrolled|pursuing|degree|school|study|studies|coursework|courses|standing|candidates?|applicants?|majoring|program\w*|internships?|level|class|open to|eligible|intended for|reserved for|complet\w*|studying|current(?:ly)?|prefer\w*|welcome|encouraged|apply|considered|must|required|(?:freshman|sophomore|junior|senior) year|upperclass\w*|underclass\w*)\b/i.test(s)) continue;
+    // Pay tables ("Intern/Junior/Senior: $34 per hour") list rates, not who may apply.
+    if (/\$\s?\d|\bper hour\b|\/\s?hr\b|\bhourly\b/i.test(s)) continue;
     // "Upperclassmen are preferred" is a preference, not a rule.
     const preferred = /\b(prefer\w*|ideal\w*|desired|a plus|nice to have)\b/i.test(s);
     const before = out.length;
     if (/\bupperclass\w*/i.test(s)) out.push({ level: 'junior' }, { level: 'senior' });
     if (/\bunderclass\w*/i.test(s)) out.push({ level: 'freshman' }, { level: 'sophomore' });
-    for (const m of s.matchAll(/\b(rising|graduating)\s+((?:freshm[ae]n|sophomores?|juniors?|seniors?)(?:(?:\s*,\s*|\s+(?:and|or|&|\/)\s+|\s*\/\s*)(?:freshm[ae]n|sophomores?|juniors?|seniors?))*)/gi)) {
-      for (const w of m[2].split(/\s*(?:,|\band\b|\bor\b|&|\/)\s*/i).filter(Boolean)) out.push({ level: levelOf(w), rising: /rising/i.test(m[1]) });
+    // A run of class years: "junior or senior", "Sophomore, Junior, or Senior", "Final or Penultimate year", "2nd or 3rd year".
+    for (const m of s.matchAll(GROUP_RE)) {
+      const g = m[0], head = s.slice(Math.max(0, m.index - 45), m.index), tail = s.slice(m.index + g.length, m.index + g.length + 60);
+      const words = g.match(new RegExp(CW, 'gi'));
+      const named = /freshm|sophomore|junior|senior/i.test(g);
+      if (!named && !/year/i.test(g) && !/^[- ]year\b/i.test(tail)) continue; // "first week", "final internship"
+      if (ROLE_AFTER.test(tail) || (!named && ORD_NOT_SCHOOL.test(tail))) continue; // "senior engineers", "3rd year in a row"
+      if (!(/freshmen|sophomores|juniors|seniors/i.test(g) || words.length > 1 || ACCEPT_AFTER.test(tail) || HEAD_CUE.test(head))) continue;
+      // "second-year Ph.D.", "Rising senior or second-year graduate student": that ordinal is about grad school.
+      if (/^\s*(?:[- ]?year\s+)?(?:of\s+(?:an?\s+|their\s+|your\s+)?)?(?:ph\.?\s?d|doctoral|graduate|master|ms\b|mba)/i.test(tail) && !/freshm|sophomore|junior|senior/i.test(words[words.length - 1])) {
+        words.pop(); out.push({ level: 'grad' });
+        if (!words.length) continue;
+      }
+      const idx = [...new Set(words.map(w => YEARS.indexOf(levelOf(w))).filter(i => i >= 0))];
+      if (!idx.length) continue;
+      const rising = RISING_HEAD.test(head);
+      if (COMPLETED_HEAD.test(head) || /^[^.;]{0,40}\b(?:completed|results)\b/i.test(tail)) {
+        // "Completion of junior year": done with that year by the internship, so a rising senior or later.
+        for (let j = Math.max(...idx) + 1; j < 4; j++) out.push({ level: YEARS[j], rising: true });
+        out.push({ level: 'grad' });
+      } else if (AT_LEAST_HEAD.test(head) || /^\s+standing\b/i.test(tail) || /^[^.;]{0,30}\b(?:or (?:above|higher|later|beyond|more|greater)|and (?:above|up|beyond))\b/i.test(tail)) {
+        // "at least a junior", "junior standing", "junior level or above": that year or later.
+        for (let j = Math.min(...idx); j < 4; j++) out.push({ level: YEARS[j], rising });
+        out.push({ level: 'grad' });
+      } else idx.forEach(j => out.push({ level: YEARS[j], rising }));
     }
-    const plain = s.replace(/\b(rising|graduating)\s+(?:freshm[ae]n|sophomores?|juniors?|seniors?)(?:(?:\s*,\s*|\s+(?:and|or|&|\/)\s+|\s*\/\s*)(?:freshm[ae]n|sophomores?|juniors?|seniors?))*/gi, '');
-    for (const m of plain.matchAll(/\b(freshmen|sophomores|juniors|seniors)\b|\b(freshman|sophomore|junior|senior)[- ](?:year|standing|class|students?|undergrad\w*)\b/gi)) {
-      out.push({ level: levelOf(m[1] || m[2]), rising: false });
-    }
-    // "third-year students", "in their third year of undergrad", "3rd year of college", "final year of study"
-    for (const m of plain.matchAll(/\b(first|second|third|fourth|final|1st|2nd|3rd|4th)[- ]year\b(?=\s+(?:students?|undergrad\w*|of\b|in\b|college|university|standing)|[,.;)]|\s*$)/gi)) {
-      out.push({ level: levelOf(m[1]), rising: false });
-    }
-    // "...or students pursuing an advanced degree": graduate students are accepted too.
-    if (out.length > before && /\b(?:pursuing|enrolled in|working toward)\s+an?\s+(?:advanced|graduate|master'?s|ph\.?\s?d)\b|\bgraduate students\b/i.test(s)) out.push({ level: 'grad', rising: false });
+    // "must have completed at least 2 years of your degree": a rising junior or later.
+    const done = s.match(/\bcompleted (?:at least )?(one|two|three|1|2|3) (?:full[- ]time )?(?:academic )?years?\b/i);
+    if (done) { for (let j = { one: 1, two: 2, three: 3 }[done[1].toLowerCase()] ?? +done[1]; j < 4; j++) out.push({ level: YEARS[j], rising: true }); out.push({ level: 'grad' }); }
+    // "...or students pursuing an advanced degree", "junior, senior, or MS-level student": graduate students are accepted too.
+    if (out.length > before && GRAD_TOO.test(s)) out.push({ level: 'grad' });
     for (let i = before; i < out.length; i++) { out[i].rising ??= false; out[i].preferred = preferred; }
+    // "Freshmen, sophomores, and seniors will not be considered" names who is left out.
+    if (out.length > before && /\bnot (?:be )?(?:considered|eligible|accepted)\b|\bineligible\b|\bexcluded\b|\bcannot apply\b/i.test(s)) excluded.push(...out.splice(before));
+  }
+  // "Graduate students working on their master's degree will also be considered" in its own sentence.
+  if (out.length && /\b(?:graduate|master['’]?s|ph\.?\s?d) students?\b[^.]{0,60}\b(?:also|will be)\s+(?:be\s+)?(?:considered|eligible|welcome)/i.test(desc)) out.push({ level: 'grad', rising: false });
+  if (excluded.length) {
+    const out2 = out.length ? out : YEARS.map(level => ({ level, rising: false, preferred: false }));
+    return out2.filter(o => o.level && !excluded.some(x => x.level === o.level));
   }
   return out.filter(o => o.level);
 }
@@ -179,9 +226,89 @@ function classFit(job, edu, gradYearMatches) {
     wanted.some(w => w.rising) && (risingYear === 'graduated' ? `you'll have graduated by ${when}` : `you'll be a rising ${risingYear} by ${when}`),
   ].filter(Boolean).join(' and ');
   if (ok) return { ok: true, text: `Open to ${label}: ${you}, so you qualify` };
-  if (gradYearMatches) return { ok: true, text: `Says ${label}, but it also lists the class of ${edu.gradYear}, which is you` };
+  if (gradYearMatches) return { ok: true, text: `Says ${label}, but its graduation dates include yours (${edu.gradDate || edu.gradYear})` };
   if (wanted.every(w => w.preferred)) return { ok: false, preferred: true, text: `Prefers ${label}; ${you}` };
   return { ok: false, text: `Only for ${label}; ${you} (graduating ${edu.gradDate})` };
+}
+
+// ---------- graduation-date rules ----------
+// "graduation" as a noun or verb, not "graduate students" / "graduate program"; plus wording that names a degree date.
+const GRAD_CUE = /(?:\bgraduat(?!e\s+(?:students?|programs?|programmes?|roles?|positions?|degrees?|level|school|studies|research|courses?|interns?\w*|opportunit\w*|recruit\w*|schemes?|jobs?|talent|assistants?|fellows?|candidates?))\w*|\bgrad(?:uation)?\s+(?:date|year|term)|\bclass of\b|\bdegree\s+(?:expected|completion|conferral|by)\b|\b(?:complet|obtain|earn|receiv|finish|conferr)\w*\s+(?:(?:your|their|a|an|the)\s+)?(?:[\w'’]+\s+){0,3}degree\b|\bexpected\s+(?:date|to\s+(?:be\s+ready|graduat|complet|finish|receiv|obtain|earn))|\bready for full[- ]time|\breturning to (?:full[- ]time )?(?:education|school|university|studies))/i;
+const MONTH_RE = String.raw`(?:jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?|spring|summer|fall|autumn|winter`;
+const BEFORE_YEAR = new RegExp(String.raw`\b((?:${MONTH_RE})(?:\s*(?:\/|,|or|&|and)\s*(?:${MONTH_RE}))*)(?:\s+of)?(?:\s+the)?[\s,]*(?:\d{1,2}(?:st|nd|rd|th)?,?\s*)?$`, 'i');
+const monthOf = w => MONTH_NUM[w.toLowerCase()] ?? MONTH_NUM[w.slice(0, 3).toLowerCase()];
+const TOL = 1.5 / 12; // "Spring 2028" vs "May 2028", "Winter 2027" vs "December 2027"
+// Every date in a phrase as a fractional year; a bare year covers all of it. "Dec 2026 - 2028" -> Dec 2026 .. Dec 2028.
+function datePoints(text, now) {
+  const pts = [];
+  for (const m of text.matchAll(/\b(20\d{2})\b/g)) {
+    const y = +m[1];
+    if (y < now - 1 || y > now + 7) continue;
+    const mm = text.slice(0, m.index).match(BEFORE_YEAR);
+    const months = mm ? mm[1].match(/[a-z]+/gi).map(monthOf).filter(Boolean) : [];
+    if (months.length) months.forEach(n => pts.push(y + (n - 1) / 12));
+    else pts.push(y, y + 11 / 12);
+  }
+  return pts;
+}
+// The graduation dates a posting accepts, from wording like "graduating between December 2027 and June 2028",
+// "December 2027 or later", "by Spring 2029", "2027 or 2028", "will consider 2029 graduates", and
+// "must be returning to school after the internship". Returns null when it names none.
+function gradRule(job, edu) {
+  const now = new Date().getFullYear();
+  const g = gradPoint(edu);
+  if (!g) return null;
+  const end = termPoint(job) + 3 / 12; // when the internship is over
+  const wins = [], musts = [];
+  const desc = (job.desc || '').replace(/&amp;/g, '&').replace(/&nbsp;|&#xa0;| /g, ' ');
+  for (const s of desc.split(/(?<=[.!?\n•;])\s+/)) {
+    if (/^\W*if\b|\bif (?:you|graduation|graduating)\b/i.test(s)) continue; // "If you graduate in Spring 2027, apply to ..."
+    const preferred = /\b(prefer\w*|ideal\w*|desired|a plus|nice to have)\b/i.test(s);
+    const cue = s.match(GRAD_CUE);
+    let region = cue ? s.slice(cue.index, cue.index + 160).split(/\b(?:internship|program|programme|starts?|starting|begin\w*|available|runs?|running)\b|\n/i)[0] : '';
+    // "You must not have graduated before September 2027": the words before the cue flip its meaning.
+    const lead = cue ? s.slice(Math.max(0, cue.index - 30), cue.index) : '';
+    let quoted = false;
+    if (!/\b20\d{2}\b/.test(region)) {
+      quoted = true;
+      // "(December 2027 or May 2028 degree completion)", "will consider 2029 graduates"
+      const m = s.match(new RegExp(String.raw`(?:(?:${MONTH_RE})(?:\s*\/\s*(?:${MONTH_RE}))*\s+)?20\d{2}(?:\s*(?:,|or|and|-|–|—|to|through)\s*(?:(?:${MONTH_RE})(?:\s*\/\s*(?:${MONTH_RE}))*\s+)?20\d{2})*\s+(?:graduates|grads|degree completion|graduation)\b`, 'i'));
+      region = m ? m[0] : '';
+    }
+    if (region && !/\brecent(?:ly)?\s+graduat|(?<!not (?:have )?)\bgraduated\s+(?:in|after|since|within|between)\b/i.test(region)) {
+      const pts = datePoints(region, now);
+      if (pts.length) {
+        let min = Math.min(...pts), max = Math.max(...pts);
+        const later = /\bor\s+(?:any\s?time\s+)?(?:later|after|beyond)\b|\bon or after\b|\bno earlier than\b|\bnot\s+(?:have\s+|be\s+)?(?:scheduled\s+to\s+)?graduat\w*\s+(?:before|prior to)\b|\breturning to\b/i.test(lead + region);
+        const by = !later && new RegExp(String.raw`\b(?:by|no later than|before|prior to)\s+(?:the end of\s+)?(?:(?:${MONTH_RE})\s+(?:of\s+)?)?20\d{2}`, 'i').test(region);
+        if (later) max = Infinity;
+        else if (by) { min = -Infinity; if (/\bor the following year\b/i.test(s)) max += 1; }
+        // Quote the rule up to its last date: "graduation date between December 2027 and June 2028".
+        const last = [...region.matchAll(/\b20\d{2}\b/g)].pop();
+        const stop = last.index + 4 + (region.slice(last.index + 4).match(/^\s*(?:or (?:any\s?time )?(?:later|after|beyond)|or the following year)/i)?.[0].length || 0);
+        const text = quoted ? region : `${lead.match(/not\s+(?:have\s+)?$/i)?.[0] || ''}${region.slice(0, stop)}`;
+        wins.push({ min, max, preferred, text: text.replace(/\s+/g, ' ').trim() });
+      }
+    }
+    // Rules about the internship's own dates rather than a calendar year.
+    if (/reimburs|relocat/i.test(s)) continue;
+    if (/\b(?:must|need|required|should|be)\b[^.]{0,40}\breturn(?:ing)? to (?:school|campus|university|college|(?:your |their )?(?:degree|studies|university|program|education))|\band returning to (?:school|your)(?!\/home)|\breturning to school (?:after|following|afterward|at the end)|\b(?:semesters?|quarters?|terms?)(?: or (?:semester|quarter|term))?\s+(?:of\s+(?:school\w*|study|coursework)\s+)?(?:remaining|left)\s+(?:after|following)|\bnot\s+(?:be\s+)?(?:scheduled\s+to\s+)?graduat\w*\s+(?:before|prior to)\s+(?:the\s+)?(?:end|conclusion|completion)|\bgraduate prior to the conclusion of the internship|\bmonths? until graduation after/i.test(s)) {
+      musts.push({ min: end, max: Infinity, text: 'You must still be in school after the internship ends' });
+    }
+    const mo = s.match(new RegExp(String.raw`graduat\w* (?:before|prior to) (${MONTH_RE}) of the internship year`, 'i'));
+    if (mo) musts.push({ min: Math.floor(termPoint(job)) + (monthOf(mo[1]) - 1) / 12, max: Infinity, text: `Can't graduate before ${mo[1]} of the internship year` });
+    if (/\bgraduating within (?:one|1|a) year\b|\b(?:one|1) or (?:less|fewer) (?:academic )?years? remaining after\b/i.test(s)) musts.push({ min: -Infinity, max: end + 1, text: 'Wants students within a year of graduating' });
+  }
+  if (!wins.length && !musts.length) return null;
+  const inside = w => g >= w.min - TOL && g <= w.max + TOL;
+  const you = `you graduate ${edu.gradDate || edu.gradYear}`;
+  const broken = musts.find(w => !inside(w));
+  if (broken) return { ok: false, text: `${broken.text}; ${you}` };
+  if (!wins.length) return { ok: true, text: `${musts[0].text}: ${you}, so you fit` };
+  const hit = wins.find(inside);
+  const quote = [...new Set(wins.map(w => `“${w.text}”`))].slice(0, 2).join(' or ');
+  if (hit) return { ok: true, matched: true, text: `Graduation rule ${`“${hit.text}”`}: ${you}, so you fit` };
+  return { ok: false, preferred: wins.every(w => w.preferred), text: `Wants ${quote}; ${you}` };
 }
 
 // Internships are scored on student fit (enrolled, graduation year, degree level) instead of years of experience.
@@ -213,13 +340,14 @@ export function scoreInternship(job, resume, prefs) {
   let student = 1;
   let cap = 5; // hard eligibility rules cap the score instead of just lowering it
   const grad = edu.gradYear;
-  const wantYears = [...new Set([...`${job.title}\n${job.desc || ''}`.matchAll(/(?:graduat\w*|grad year|class of|expected|degree)[^.\n]{0,60}?\b(20\d{2})\b/gi)].map(m => +m[1]).filter(y => y >= now - 1 && y <= now + 6))];
+  const rule = grad ? gradRule(job, edu) : null;
   if (grad && grad < now) { student = 0.35; cap = 2.5; flags.push(`Internships want current students; your resume shows you graduated in ${grad}`); }
-  else if (grad && wantYears.length && !wantYears.includes(grad)) { student = 0.3; cap = 2.9; flags.push(`Wants students graduating ${wantYears.join(' or ')}; you graduate ${grad}`); }
-  else if (grad && wantYears.includes(grad)) reasons.push(`Looking for the class of ${grad}: that's you`);
-  else if (grad) reasons.push(`No graduation-year limit listed; you graduate ${edu.gradDate || grad}`);
+  else if (rule && !rule.ok && rule.preferred) { student = Math.min(student, 0.6); flags.push(rule.text.replace(/^Wants/, 'Prefers')); }
+  else if (rule && !rule.ok) { student = 0.3; cap = 2.9; flags.push(rule.text); }
+  else if (rule) reasons.push(rule.text);
+  else if (grad) reasons.push(`No graduation-date limit listed; you graduate ${edu.gradDate || grad}`);
   if (!edu.gradStudent && (/\b(ph\.?\s?d|doctoral|master'?s (student|candidate|program))\b/i.test(job.title) || /\b(MS|M\.S\.|PhD)\b/.test(job.title) || gradOnlyText(job.desc))) { student = Math.min(student, 0.25); cap = Math.min(cap, 2.5); flags.push('Meant for graduate students'); }
-  const cls = classFit(job, edu, grad && wantYears.includes(grad));
+  const cls = classFit(job, edu, !!rule?.matched);
   if (cls?.ok) reasons.push(cls.text);
   else if (cls?.preferred) { student = Math.min(student, 0.6); flags.push(cls.text); }
   else if (cls) { student = Math.min(student, 0.3); cap = Math.min(cap, 2.5); flags.push(cls.text); }
