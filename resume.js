@@ -143,8 +143,10 @@ export function parseResume(text) {
     || lines.flatMap((l, i) => (SCHOOL_RE.test(l) || DEGREE_RE.test(l) ? [l, lines[i + 1] || ''] : [])).join('\n');
   const entries = parseEntries(kept);
   return {
-    profile, sections: kept, skills: extractSkills(text), years: yearsOfExperience(text), education: parseEducation(eduText), entries,
-    brands: brandEmployers(entries.filter(e => e.kind !== 'project').map(e => e.header)),
+    profile, sections: kept, skills: extractSkills(text), education: parseEducation(eduText), entries,
+    years: entries.length ? workYears(entries) : yearsOfExperience(lines.filter(l => !eduText.includes(l)).join('\n')),
+    // Making videos on YouTube or selling on Amazon is not working there.
+    brands: brandEmployers(entries.filter(e => e.kind !== 'project' && !/\b(?:content creator|creator|youtuber|streamer|influencer|freelanc\w*|seller|reseller|affiliate|vendor|customer|user|member|participant|contributor)\b/i.test(e.header)).map(e => e.header)),
   };
 }
 
@@ -239,6 +241,29 @@ function guessName(lines) {
 function guessLocation(line) {
   const m = line.split(/[|•·]/).map(s => s.trim()).map(s => s.match(/^([A-Z][a-zA-Z .]+),\s?([A-Z]{2})$/)).find(Boolean);
   return m ? `${m[1].trim()}, ${m[2]}` : '';
+}
+
+// Years of real work experience, the way a hiring manager counts it: only Experience-section jobs, overlapping
+// jobs counted once, and student or side roles (internships, part-time, TA, tutoring, YouTube, freelance) left
+// out. A 2021–2026 YouTube channel is not five years of engineering experience.
+const SIDE_ROLE = /\b(?:intern(?:ship)?|co-?op|part[- ]time|student|teaching assistant|\bTA\b|tutor|volunteer|content creator|youtube\w*|streamer|influencer|freelanc\w*|campus|research assistant|undergraduate|ambassador|summer|seasonal|camp counselor)\b/i;
+const MON3 = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+function spans(text) {
+  const now = new Date(), nowP = now.getFullYear() + now.getMonth() / 12;
+  const mon = s => (s ? MON3[s.slice(0, 3).toLowerCase()] ?? 0 : null);
+  return [...text.matchAll(/(?:\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+)?((?:19|20)\d{2})\s*(?:-|–|—|to)\s*(?:(?:\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+)?((?:19|20)\d{2})|present|current|now)/gi)]
+    .map(m => [+m[2] + (mon(m[1]) ?? 0) / 12, m[4] ? +m[4] + (mon(m[3]) ?? 11) / 12 : nowP])
+    .filter(([a, b]) => b >= a && b - a < 40);
+}
+export function workYears(entries) {
+  const iv = entries.filter(e => e.kind === 'job' && !SIDE_ROLE.test(e.header)).flatMap(e => spans(e.header)).sort((a, b) => a[0] - b[0]);
+  let total = 0, cur = null;
+  for (const [a, b] of iv) {
+    if (cur && a <= cur[1]) cur[1] = Math.max(cur[1], b);
+    else { if (cur) total += cur[1] - cur[0]; cur = [a, b]; }
+  }
+  if (cur) total += cur[1] - cur[0];
+  return Math.round(total * 10) / 10;
 }
 
 // Rough years of full-time experience from date ranges in the Experience section.

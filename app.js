@@ -68,7 +68,7 @@ function applyResume(text, fromFile) {
   store.set('profile', state.profile);
   $('#skillChips').innerHTML = state.parsed.skills.map(s => `<span class="chip">${esc(pretty(s))}</span>`).join('') || '<span class="muted small">No known skills found yet. Make sure your resume has a Skills section.</span>';
   $('#skillCount').textContent = `(${state.parsed.skills.length})`;
-  $('#resumeStatus').textContent = `Loaded · ${text.split(/\s+/).length} words · about ${state.parsed.years} years of dated experience${state.profile.grad ? ` · graduation: ${state.profile.grad}` : ' · no graduation date found: add it in your profile if you are a student'}`;
+  $('#resumeStatus').textContent = `Loaded · ${text.split(/\s+/).length} words · about ${state.parsed.years} years of full-time work (internships, part-time and side roles not counted)${state.profile.grad ? ` · graduation: ${state.profile.grad}` : ' · no graduation date found: add it in your profile if you are a student'}`;
   if (!$('#fRoles').value) $('#fRoles').value = guessRoles(text);
 }
 

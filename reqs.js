@@ -4,11 +4,15 @@
 import { extractSkills } from './skills.js';
 
 const BULLET = /^\s*(?:[*•\-–▪◦●■►‣]|\d{1,2}[.)])\s+/;
-const clean = l => l.replace(/\*\*|__|^#+\s*/g, '').replace(BULLET, '').replace(/[’‘]/g, "'").trim();
+const clean = l => l.replace(/&nbsp;|&#xa0;| /g, ' ').replace(/&amp;/g, '&').replace(/\*\*|__|^#+\s*/g, '').replace(BULLET, '').replace(/[’‘]/g, "'").replace(/\s+/g, ' ').trim();
 
-const MUST_HEAD = /^(?:(?:minimum|basic|required|key|position|job|core|technical)\s+)?(?:qualifications?|requirements?)(?:\s*\/\s*(?:qualifications?|requirements?))?$|^(?:required|must[- ]have)\s+(?:skills|experience|qualifications)|^what (?:you'?ll|you will|you) (?:need|bring)|^what we(?:'re| are) looking for|^(?:you have|you bring|you should have|you'?ll have|about you|who you are|must[- ]haves?|skills (?:&|and) (?:experience|qualifications)|your (?:skills|background|experience|profile)|ideal candidate|requirements and qualifications|qualifications and requirements)/i;
-const NICE_HEAD = /^(?:preferred|desired|desirable|bonus|additional|nice[- ]to[- ]haves?|pluses|extra credit|good to have|it'?s a plus|even better|ideally)/i;
-const OTHER_HEAD = /^(?:responsibilities|key responsibilities|duties|what (?:you'?ll|you will) (?:do|learn|gain)|a day in|day to day|about (?:the (?:role|team|company|job)|us|our)|benefits|perks|compensation|pay|salary|eligibility|location|who we are|our (?:team|mission|company)|why (?:join|you'?ll love)|the role|role overview|job (?:summary|description)|overview|equal (?:employment|opportunity)|how to apply|additional information|the opportunity|what we offer)/i;
+// Section headings. "Required / Minimum / Basic Qualifications", "What we need to see", "You may be a good fit if
+// you have" are must-haves; "Preferred Qualifications", "Bonus points", "Strong candidates may also have" are
+// nice-to-haves. Headings about the job itself, pay or paperwork end the requirements.
+const OTHER_HEAD = /^(?:(?:key |primary |your |job |essential )?responsibilit\w*|duties|what (?:you'?ll|you will|you'?d) (?:do|learn|gain|work on|be doing)|the experience you'?ll gain|a day in|day[- ]to[- ]day|about (?:the (?:role|team|company|job|position|program|internship)|us|our|(?!you\b)\w+$)|benefits|perks|compensation|pay\b|salary|location|who we are|our (?:team|mission|company|values|culture|benefits)|why (?:join|work|you'?ll love)|the role|role (?:overview|summary)|job (?:summary|description|overview)|position (?:summary|overview)|overview|equal (?:employment|opportunity)|eeo|how to apply|additional information|the opportunity|what we offer|internship (?:experience|details|program details)|program details|schedule|travel)|\b(?:physical|citizenship|clearance|itar|ear|security|travel|work authori[sz]ation|visa|background check) requirements?\b|\bcompensation\b|\bbenefits\b/i;
+const NICE_WORDS = /\b(?:prefer\w*|desired|desirable|bonus|nice[- ]to[- ]haves?|pluses|a plus|added plus|is a plus|extra credit|good to have|even better|ideally|not required|helpful|may also have|might also have|would be great|stand out|differentiators?|advantage\w*)\b/i;
+const MUST_WORDS = /\b(?:qualifications?|requirements?|required|require|must[- ]haves?|must have|minimum|basic|essential|need to see|you(?:'ll| will)? need|what you need|need to have|looking for|you have|you bring|you are|you'?re|who you are|about you|ideal candidate|ideal qualifications|good fit|great fit|fit if|ideal for this role|skills|experience|knowledge|abilities|competenc\w*|pre-?requisites|expect(?:ations)?|thrive|successful|hear from you|excited about you|candidate|profile|background|talk about you|what you(?:'ve| have) done|you should have|we want|we value)\b/i;
+const kindOfHeadingText = t => (OTHER_HEAD.test(t) ? 'other' : NICE_WORDS.test(t) ? 'nice' : MUST_WORDS.test(t) ? 'must' : null);
 const NICE_INLINE = /\b(?:a (?:big |huge )?plus|is a plus|an advantage|advantageous|preferred|nice to have|bonus|desirable|ideally|not required|helpful but)\b/i;
 const MUST_INLINE = /\b(?:required|must have|must be|mandatory|minimum|essential)\b/i;
 
@@ -35,25 +39,38 @@ const CONCEPTS = [
 const stem = w => w.replace(/(?:ing|ers|er|ed|ies|es|s|ly|al|ment|ments|tion|tions)$/, '').slice(0, 7);
 
 function kindOfHeading(raw) {
-  const t = clean(raw).replace(/:$/, '').trim();
-  if (!t || t.length > 70 || BULLET.test(raw)) return null;
-  const looksLikeHeading = /:$/.test(clean(raw)) || /^\*\*.*\*\*:?$/.test(raw.trim()) || /^#+\s/.test(raw.trim()) || (t === t.toUpperCase() && /[A-Z]/.test(t)) || t.split(/\s+/).length <= 6;
-  if (!looksLikeHeading) return null;
-  if (NICE_HEAD.test(t)) return 'nice';
-  if (MUST_HEAD.test(t)) return 'must';
-  if (OTHER_HEAD.test(t)) return 'other';
-  return null;
+  const c = clean(raw);
+  const t = c.replace(/[:\s]+$/, '').replace(/^[^A-Za-z0-9]+/, '').trim();
+  if (!t || BULLET.test(raw)) return null;
+  const words = t.split(/\s+/).length;
+  // "Qualifications", "REQUIRED", "**What we need to see:**", "To be successful in this position you will need:"
+  const looksLikeHeading = (/:$/.test(c) && words <= 16) || (/^\*\*.*\*\*:?$/.test(raw.trim()) && words <= 12) || /^#+\s/.test(raw.trim()) || (t === t.toUpperCase() && /[A-Z]/.test(t) && words <= 10) || (words <= 7 && !/[.!]$/.test(t));
+  if (!looksLikeHeading || t.length > 110) return null;
+  return kindOfHeadingText(t);
 }
 
+// "Required: Python and SQL", "Preferred: experience with AWS" on a single line.
+const INLINE_LABEL = /^(?:(required|minimum|basic|must[- ]haves?|requirements)|(preferred|desired|bonus(?: points)?|nice[- ]to[- ]haves?|plus(?:es)?))(?:\s+(?:qualifications?|skills|experience))?\s*:\s*(.{12,})$/i;
+// Closing lines that sit under the last heading but are not requirements.
+const BOILERPLATE = /equal (?:employment )?opportunity|affirmative action|\bapply (?:today|now)\b|what it takes|encourage you to apply|reasonable accommodation|e-?verify|disabilit|recruiting agenc|privacy (?:notice|policy)|\bsalary\b|\bpay range\b|\$\d|check out|ever wondered|\bvideo\b|accepted on an ongoing basis|please (?:ensure|note|upload|submit)|^note:/i;
+// Bullets that state a skill or experience requirement even when no heading says so.
+const REQ_START = /^(?:experience\w*|proficien\w*|knowledge|familiar\w*|strong|solid|excellent|demonstrated|understanding|ability|comfortable|hands-on|background|working knowledge|fluen\w*|exposure|expertise|skilled|competen\w*|\d+\+? years?|coursework|prior|previous|at least)\b/i;
+
 export function parseRequirements(desc = '') {
-  const must = [], nice = [];
-  let mode = null;
-  for (const raw of desc.split('\n')) {
+  const must = [], nice = [], loose = [];
+  let mode = null, empty = false;
+  for (const raw of desc.replace(/&nbsp;|&#xa0;| /g, ' ').split('\n')) {
     if (!raw.trim()) continue;
+    const inline = clean(raw).match(INLINE_LABEL);
+    if (inline) { (inline[1] ? must : nice).push(inline[3].slice(0, 220)); empty = false; continue; }
     const head = kindOfHeading(raw);
-    if (head) { mode = head === 'other' ? null : head; continue; }
+    // "Requirements:" right above "Desired Qualifications" with nothing between: the list is still the requirements.
+    if (head) { if (!(head === 'nice' && mode === 'must' && empty)) mode = head === 'other' ? null : head; empty = true; continue; }
+    empty = false;
     const text = clean(raw);
+    if (BOILERPLATE.test(text)) continue;
     const isBullet = BULLET.test(raw);
+    if (!mode && isBullet && REQ_START.test(text) && text.length >= 12 && text.length <= 300) loose.push(text);
     // Any other short heading-like line ("Why Pilot Company?", "Benefits") ends the requirements section.
     if (!isBullet && text.split(/\s+/).length <= 8 && !/\.$/.test(text) && (/[?:]$/.test(text) || /^(?:[A-Z][\w'&-]*\s*){1,8}$/.test(text))) { mode = null; continue; }
     if (text.length < 12 || text.length > 400 || /\]\(|https?:\/\//.test(raw)) continue;
@@ -69,7 +86,9 @@ export function parseRequirements(desc = '') {
       if (kind && s.length >= 12) (kind === 'must' ? must : nice).push(s.slice(0, 220));
     }
   }
-  return { must: must.slice(0, 15), nice: nice.slice(0, 12) };
+  // No requirements heading at all: bullets like "Experience with React" still count.
+  if (!must.length) for (const t of loose) (NICE_INLINE.test(t) && !MUST_INLINE.test(t) ? nice : must).push(t.slice(0, 220));
+  return { must: [...new Set(must)].slice(0, 15), nice: [...new Set(nice)].slice(0, 12) };
 }
 
 // met / partial / missing, or "soft" (not something a resume can prove) / "eligibility" (checked elsewhere).
@@ -88,7 +107,7 @@ export function checkLine(full, resume) {
     const got = units.filter(u => u.ok).length;
     const anyOf = /\b(?:or|any|at least one|one of|such as|e\.g\.?|for example|like)\b/i.test(line);
     const status = got === 0 ? 'missing' : anyOf || got / units.length >= 0.67 ? 'met' : 'partial';
-    return { status, have: units.filter(u => u.ok).map(u => u.name), lack: units.filter(u => !u.ok).map(u => u.name) };
+    return { status, hard: true, have: units.filter(u => u.ok).map(u => u.name), lack: units.filter(u => !u.ok).map(u => u.name) };
   }
   // Mostly personality words ("fast learner, highly motivated, good communication"): not provable from a resume.
   const softHits = (line.match(SOFT) || []).length;
@@ -99,7 +118,9 @@ export function checkLine(full, resume) {
   if (words.length < 2 && !named.length) return { status: 'soft' };
   const found = words.filter(w => new RegExp(`\\b${stem(w).replace(/[+#]/g, '\\$&')}`).test(text));
   const ratio = found.length / words.length;
-  return { status: ratio >= 0.6 ? 'met' : ratio >= 0.3 ? 'partial' : 'missing', have: found, lack: words.filter(w => !found.includes(w)) };
+  // Only named things ("Hootsuite", "OCaml") are listed as missing keywords; plain words are not keywords.
+  const lackNamed = [...new Set(named.filter(w => !found.includes(w.toLowerCase())))];
+  return { status: ratio >= 0.6 ? 'met' : ratio >= 0.3 ? 'partial' : 'missing', have: found, lack: lackNamed };
 }
 
 // Overall requirement fit for scoring: null when the posting has no recognisable requirements.
