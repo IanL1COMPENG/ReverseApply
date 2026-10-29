@@ -28,6 +28,8 @@ const state = {
   interns: store.get('interns', []),
   queue: store.get('queue', []),
   tracker: store.get('tracker', []),
+  pendingApply: store.get('pendingApply', null), // the job whose application page was just opened
+
   edits: store.get('edits', {}),     // jobId -> edited resume text
   extras: store.get('extras', {}),   // jobId -> skills the user confirmed they have
   key: store.get('key', ''),
@@ -48,7 +50,12 @@ function showTab(name) {
   $$('.pane').forEach(p => p.classList.toggle('active', p.id === `pane-${name}`));
 }
 $$('.tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
-document.addEventListener('click', e => { const g = e.target.closest('[data-go]'); if (g) showTab(g.dataset.go); });
+document.addEventListener('click', e => {
+  const g = e.target.closest('[data-go]');
+  if (!g) return;
+  if (g.hasAttribute('data-close')) $('#modal').hidden = true;
+  showTab(g.dataset.go);
+});
 
 // ---------- resume ----------
 const PROFILE_FIELDS = { name: '#pName', email: '#pEmail', phone: '#pPhone', location: '#pLocation', linkedin: '#pLinkedin', site: '#pSite', auth: '#pAuth' };
@@ -304,31 +311,38 @@ function jobCard(j, inQueue) {
   </article>`;
 }
 
+// Jobs you already applied to move to the Applied tab, so they never show up as new again.
+const appliedNote = n => n ? `<p class="muted small center">${n} you already applied to ${n === 1 ? 'is' : 'are'} hidden here. <button class="linkish" data-go="applied">See them in Applied</button></p>` : '';
+
 function renderJobs() {
   const min = +$('#minScore').value, q = $('#jobFilter').value.toLowerCase(), sort = $('#sortBy').value;
-  const list = state.jobs.filter(j => j.fit.score >= min && (!q || `${j.title} ${j.company} ${j.location}`.toLowerCase().includes(q)))
+  const open = state.jobs.filter(j => !appliedRow(j));
+  const list = open.filter(j => j.fit.score >= min && (!q || `${j.title} ${j.company} ${j.location}`.toLowerCase().includes(q)))
     .sort(sort === 'new' ? (a, b) => b.posted - a.posted : (a, b) => b.fit.score - a.fit.score || b.posted - a.posted);
   const shown = list.slice(0, 200);
-  $('#jobList').innerHTML = shown.map(j => jobCard(j)).join('') || `<div class="empty">${state.jobs.length ? 'No jobs at this score. Lower the minimum score or widen your search.' : 'Your matches show up here.'}</div>`;
+  $('#jobList').innerHTML = shown.map(j => jobCard(j)).join('') || `<div class="empty">${open.length ? 'No jobs at this score. Lower the minimum score or widen your search.' : state.jobs.length ? 'You applied to every match. Run a new search for more.' : 'Your matches show up here.'}</div>`;
   if (list.length > 200) $('#jobList').insertAdjacentHTML('beforeend', `<p class="muted small center">Showing the top 200 of ${list.length}. Raise the minimum score or filter to narrow it.</p>`);
-  const n = state.jobs.filter(j => j.fit.score >= 4).length;
-  $('#jobsBadge').hidden = !state.jobs.length; $('#jobsBadge').textContent = n;
+  $('#jobList').insertAdjacentHTML('beforeend', appliedNote(state.jobs.length - open.length));
+  const n = open.filter(j => j.fit.score >= 4).length;
+  $('#jobsBadge').hidden = !open.length; $('#jobsBadge').textContent = n;
 }
 ['#minScore', '#sortBy'].forEach(s => $(s).addEventListener('change', renderJobs));
 $('#jobFilter').addEventListener('input', renderJobs);
 
 function renderInterns() {
   const min = +$('#internMin').value, q = $('#internFilter').value.toLowerCase(), term = $('#internTerm').value, sort = $('#internSort').value;
-  const list = state.interns.filter(j => j.fit.score >= min && (!term || (j.term || j.title).toLowerCase().includes(term)) && (!q || `${j.title} ${j.company} ${j.location}`.toLowerCase().includes(q)))
+  const open = state.interns.filter(j => !appliedRow(j));
+  const list = open.filter(j => j.fit.score >= min && (!term || (j.term || j.title).toLowerCase().includes(term)) && (!q || `${j.title} ${j.company} ${j.location}`.toLowerCase().includes(q)))
     .sort(sort === 'new' ? (a, b) => b.posted - a.posted : (a, b) => b.fit.score - a.fit.score || b.posted - a.posted);
-  $('#internList').innerHTML = list.slice(0, 200).map(j => jobCard(j)).join('') || `<div class="empty">${state.interns.length ? 'No internships at this score or term. Lower the minimum score or pick "Any" term.' : 'Internships matched to your resume show up here after you search.'}</div>`;
+  $('#internList').innerHTML = list.slice(0, 200).map(j => jobCard(j)).join('') || `<div class="empty">${open.length ? 'No internships at this score or term. Lower the minimum score or pick "Any" term.' : state.interns.length ? 'You applied to every internship match. Run a new search for more.' : 'Internships matched to your resume show up here after you search.'}</div>`;
   if (list.length > 200) $('#internList').insertAdjacentHTML('beforeend', `<p class="muted small center">Showing the top 200 of ${list.length}.</p>`);
-  $('#internsBadge').hidden = !state.interns.length; $('#internsBadge').textContent = state.interns.filter(j => j.fit.score >= 4).length;
+  $('#internList').insertAdjacentHTML('beforeend', appliedNote(state.interns.length - open.length));
+  $('#internsBadge').hidden = !open.length; $('#internsBadge').textContent = open.filter(j => j.fit.score >= 4).length;
 }
 ['#internMin', '#internTerm', '#internSort'].forEach(s => $(s).addEventListener('change', renderInterns));
 $('#internFilter').addEventListener('input', renderInterns);
 $('#queueInterns').addEventListener('click', () => {
-  const top = state.interns.filter(j => j.fit.score >= 4);
+  const top = state.interns.filter(j => j.fit.score >= 4 && !appliedRow(j));
   if (!top.length) return toast('No 4+ internships yet.');
   addToQueue(top);
   renderInterns();
@@ -336,7 +350,7 @@ $('#queueInterns').addEventListener('click', () => {
 });
 
 const findJob = id => state.jobs.find(j => j.id === id) || state.interns.find(j => j.id === id);
-const renderAll = () => { renderJobs(); renderInterns(); fillCheckJobs(); };
+const renderAll = () => { renderJobs(); renderInterns(); fillCheckJobs(); renderApplied(); };
 
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
@@ -349,7 +363,7 @@ document.addEventListener('click', e => {
 });
 
 $('#queueTop').addEventListener('click', () => {
-  const top = state.jobs.filter(j => j.fit.score >= 4);
+  const top = state.jobs.filter(j => j.fit.score >= 4 && !appliedRow(j));
   if (!top.length) return toast('No 4+ jobs yet.');
   addToQueue(top);
   renderJobs();
@@ -434,6 +448,7 @@ async function openKit(job) {
   const kwWord = s => spellingIn(s, jobText) || pretty(s);
   const elig = f.eligibility || [];
   const blocked = elig.some(c => c.status === 'no');
+  const done = appliedRow(job);
   $('#modalBody').innerHTML = `
     <div class="kit-head">
       <div class="score ${scoreClass(f.score)}">${f.score.toFixed(1)}<small>/ 5</small></div>
@@ -441,6 +456,7 @@ async function openKit(job) {
       <div class="small"><b>${esc(f.verdict)}</b>${blocked ? ' · You are not eligible for this one based on your profile.' : f.score < 4 ? ' · Below 4/5: skip it unless you have a specific reason (a referral, a dream company).' : ''}</div></div>
       <a class="btn btn-ghost btn-small" href="${esc(job.url)}" target="_blank" rel="noopener">View posting ↗</a>
     </div>
+    ${done ? `<div class="applied-banner">✓ You already applied to this on <b>${esc(niceDate(done.date))}</b> (status: ${esc(done.status)}). No need to apply again. Track it in the <button class="linkish" data-go="applied" data-close>Applied</button> tab.</div>` : ''}
     <div class="kit-grid">
       <div>
         <section class="kit-sec"><h4>Can you apply?</h4>
@@ -475,9 +491,9 @@ async function openKit(job) {
           <div id="kitAts" class="small muted">Reading your PDF back…</div></section>
       </div>
     </div>
-    <div class="kit-foot">
-      <button class="btn btn-ghost" id="kitQueue">${state.queue.includes(job.id) ? 'In queue ✓' : 'Add to queue'}</button>
-      <button class="btn btn-big" id="kitApply">Download PDF & open application</button>
+    <div class="kit-foot" id="kitFoot">
+      ${done ? '' : `<button class="btn btn-ghost" id="kitQueue">${state.queue.includes(job.id) ? 'In queue ✓' : 'Add to queue'}</button>`}
+      <button class="btn ${done ? 'btn-ghost' : 'btn-big'}" id="kitApply">${done ? 'Open the application again' : 'Download PDF & open application'}</button>
     </div>`;
   $('#modal').hidden = false;
   let checkGen = 0;
@@ -508,13 +524,16 @@ async function openKit(job) {
   });
   $('#kitPdf').onclick = () => { saveEdits(); resumePdf(textToDoc($('#kitResume').value)).save(fileName(job)); };
   $('#kitReset').onclick = () => { delete state.edits[job.id]; store.set('edits', state.edits); $('#kitResume').value = resumeText(docFor(job)); atsSoon(); };
-  $('#kitQueue').onclick = e => { addToQueue([job]); e.target.textContent = 'In queue ✓'; };
+  if ($('#kitQueue')) $('#kitQueue').onclick = e => { addToQueue([job]); e.target.textContent = 'In queue ✓'; };
   $('#kitApply').onclick = () => {
     saveEdits();
     resumePdf(textToDoc($('#kitResume').value)).save(fileName(job));
     window.open(job.applyUrl || job.url, '_blank', 'noopener');
-    track(job, 'Applied');
-    toast('Resume downloaded. Upload it on the page that just opened. Answers are in this window to copy.', 6000);
+    if (appliedRow(job)) return toast('Opened the application again. You already marked this one as applied.');
+    // Nothing is marked applied until you say so: opening the page is not the same as submitting.
+    setPending(job);
+    showAsk($('#kitFoot'), job);
+    toast('Resume downloaded. Upload it on the page that just opened, then come back and tell us if you submitted.', 7000);
   };
   $('#kitAi').onclick = async () => {
     if (!state.key) return toast('Add your Anthropic API key in step 2 to use AI.');
@@ -551,6 +570,10 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modal').
 function queueJobs() { return state.queue.map(findJob).filter(Boolean); }
 
 function renderQueue() {
+  // Anything applied to elsewhere (or from a second source of the same posting) leaves the queue.
+  const before = state.queue.length;
+  state.queue = state.queue.filter(id => { const j = findJob(id); return !j || !appliedRow(j); });
+  if (state.queue.length !== before) store.set('queue', state.queue);
   const jobs = queueJobs();
   $('#queueList').innerHTML = jobs.map(j => jobCard(j, true)).join('') || '<div class="empty">Queue jobs from step 3. "Queue all 4+" adds every strong match at once.</div>';
   $('#queueBadge').hidden = !jobs.length; $('#queueBadge').textContent = jobs.length;
@@ -589,19 +612,113 @@ function download(blob, name) {
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
+// ---------- applied: every application you said you sent ----------
+// "Queued" rows (exported to Autopilot) are not applications yet; every later status is.
 const STATUSES = ['Queued', 'Applied', 'Interview', 'Offer', 'Rejected', 'Hired'];
+const AFTER = STATUSES.slice(1);
+// The same posting can come from two sources (company board and an internship list): match on company + title too.
+const jobKey = j => `${j.company}|${j.title}`.toLowerCase().replace(/[^a-z0-9|]+/g, '');
+function appliedRow(job) {
+  const k = jobKey(job);
+  return state.tracker.find(r => AFTER.includes(r.status) && (r.id === job.id || (r.key || jobKey(r)) === k)) || null;
+}
+// Dates are stored as the local calendar day ("2026-10-29") and shown in that same day.
+const localDay = () => new Date().toLocaleDateString('en-CA');
+const niceDate = d => { const t = Date.parse(`${d}T12:00`); return isNaN(t) ? d : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); };
+
 function track(job, status) {
-  const row = state.tracker.find(r => r.id === job.id);
-  if (row) { if (STATUSES.indexOf(status) > STATUSES.indexOf(row.status)) row.status = status; }
-  else state.tracker.unshift({ id: job.id, date: new Date().toISOString().slice(0, 10), company: job.company, title: job.title, score: job.fit.score, status, url: job.url });
+  const row = state.tracker.find(r => r.id === job.id) || state.tracker.find(r => (r.key || jobKey(r)) === jobKey(job));
+  const today = localDay();
+  if (row) {
+    if (STATUSES.indexOf(status) > STATUSES.indexOf(row.status)) { if (row.status === 'Queued' && status === 'Applied') row.date = today; row.status = status; }
+  } else state.tracker.unshift({ id: job.id, key: jobKey(job), date: today, company: job.company, title: job.title, score: job.fit.score, status, url: job.url,
+    applyUrl: job.applyUrl, location: job.location, lane: job.lane, term: job.term });
   store.set('tracker', state.tracker);
-  renderTracker();
 }
-function renderTracker() {
-  $('#trackerBody').innerHTML = state.tracker.map((r, i) => `<tr><td>${esc(r.date)}</td><td>${esc(r.company)}</td><td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></td><td>${r.score.toFixed(1)}</td>
-    <td><select data-row="${i}">${STATUSES.map(s => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}</select></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Applications you send show up here.</td></tr>';
+
+function markApplied(job) {
+  track(job, 'Applied');
+  state.queue = state.queue.filter(id => id !== job.id);
+  store.set('queue', state.queue);
+  setPending(null);
+  renderQueue(); renderAll();
+  $('#modal').hidden = true;
+  toast(`Moved to Applied ✓  ${job.title} at ${job.company} won't show up in your matches again.`, 5000);
 }
-$('#trackerBody').addEventListener('change', e => { const i = e.target.dataset.row; if (i != null) { state.tracker[i].status = e.target.value; store.set('tracker', state.tracker); } });
+
+// ---------- "Did you apply?" ----------
+// Asked right after the application page opens, and again when you come back to this tab.
+function setPending(job) {
+  state.pendingApply = job ? { id: job.id, key: jobKey(job), title: job.title, company: job.company, url: job.url, applyUrl: job.applyUrl, location: job.location, lane: job.lane, term: job.term, score: job.fit?.score ?? 0, at: Date.now() } : null;
+  store.set('pendingApply', state.pendingApply);
+  if (!job) $('#applyAsk').hidden = true;
+}
+// The pending job, even if it is no longer in the current search results.
+const pendingJob = () => { const p = state.pendingApply; return p && (findJob(p.id) || { ...p, fit: { score: p.score } }); };
+
+function askHtml(job) {
+  return `<div class="ask"><div><b>Did you submit your application?</b><br><span class="small muted">${esc(job.title)} · ${esc(job.company)}</span></div>
+    <div class="ask-btns"><button class="btn" data-ask="yes">Yes, I applied</button><button class="btn btn-ghost" data-ask="later">Still working on it</button><button class="btn btn-ghost" data-ask="no">No, I didn't</button></div></div>`;
+}
+function showAsk(where, job) { where.innerHTML = askHtml(job); }
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-ask]');
+  if (!b) return;
+  const job = pendingJob();
+  if (!job) return ($('#applyAsk').hidden = true);
+  if (b.dataset.ask === 'yes') markApplied(job);
+  else if (b.dataset.ask === 'no') { setPending(null); if (!$('#modal').hidden) openKit(job); toast('Okay, it stays in your matches.'); }
+  else { $('#applyAsk').hidden = true; if (!$('#modal').hidden && $('#kitFoot')) $('#kitFoot').innerHTML = '<span class="small muted">We\'ll ask again when you come back to this tab.</span>'; }
+});
+// Back from the application tab: ask in a floating card (unless the job's own window is already asking).
+function askIfPending() {
+  const p = state.pendingApply;
+  if (!p) return;
+  if (Date.now() - p.at > 7 * 86400000) return setPending(null); // a week later, stop asking
+  if (!$('#modal').hidden && $('#kitFoot')?.querySelector('.ask')) return;
+  $('#applyAsk').innerHTML = askHtml(pendingJob());
+  $('#applyAsk').hidden = false;
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') askIfPending(); });
+window.addEventListener('focus', askIfPending);
+
+// ---------- the Applied tab ----------
+function renderApplied() {
+  const rows = state.tracker.filter(r => AFTER.includes(r.status));
+  const sel = $('#appliedFilter')?.value || '';
+  const shown = rows.filter(r => !sel || r.status === sel);
+  const count = s => rows.filter(r => r.status === s).length;
+  $('#appliedBadge').hidden = !rows.length; $('#appliedBadge').textContent = rows.length;
+  $('#appliedStats').innerHTML = rows.length ? [['Applied', 'Applied'], ['Interview', 'Interviews'], ['Offer', 'Offers'], ['Hired', 'Hired'], ['Rejected', 'Rejected']]
+    .map(([s, label]) => `<div><b>${s === 'Applied' ? rows.length : count(s)}</b><span>${s === 'Applied' ? 'applications sent' : label}</span></div>`).join('') : '';
+  $('#appliedList').innerHTML = shown.map(r => `<article class="job applied" data-row-key="${esc(r.key || jobKey(r))}">
+    <div class="score ${scoreClass(r.score || 1)}">${(r.score || 0).toFixed(1)}<small>/ 5</small></div>
+    <div class="job-main">
+      <h4>${esc(r.title)}</h4>
+      <div class="meta"><b>${esc(r.company)}</b>${r.location ? `<span>${esc(r.location)}</span>` : ''}<span>Applied ${esc(niceDate(r.date))}</span></div>
+      <div class="pills"><span class="pill-s ${r.status === 'Offer' || r.status === 'Hired' || r.status === 'Interview' ? 'good' : r.status === 'Rejected' ? 'bad' : ''}">${esc(r.status)}</span>${r.lane === 'intern' ? `<span class="pill-s">${esc(r.term || 'Internship')}</span>` : ''}</div>
+    </div>
+    <div class="acts">
+      <select data-status aria-label="Status">${AFTER.map(s => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      ${r.url ? `<a class="btn btn-small btn-ghost" href="${esc(r.url)}" target="_blank" rel="noopener">Posting ↗</a>` : ''}
+      <button class="btn btn-small btn-ghost" data-unapply title="Put it back in your matches">Undo</button>
+    </div>
+  </article>`).join('') || `<div class="empty">${rows.length ? 'Nothing with this status.' : 'When you apply to a job, tell us you did and it moves here, so you never apply twice.'}</div>`;
+}
+const rowOf = el => { const k = el.closest('[data-row-key]')?.dataset.rowKey; return state.tracker.find(r => (r.key || jobKey(r)) === k && AFTER.includes(r.status)); };
+$('#appliedList').addEventListener('change', e => {
+  const r = e.target.matches('[data-status]') && rowOf(e.target);
+  if (r) { r.status = e.target.value; store.set('tracker', state.tracker); renderApplied(); toast(r.status === 'Interview' ? 'Interview! Good luck 🎉' : r.status === 'Offer' ? 'An offer! 🎉' : `Marked as ${r.status}.`); }
+});
+$('#appliedList').addEventListener('click', e => {
+  const r = e.target.closest('[data-unapply]') && rowOf(e.target);
+  if (!r) return;
+  state.tracker = state.tracker.filter(x => x !== r);
+  store.set('tracker', state.tracker);
+  renderAll();
+  toast(`${r.title} is back in your matches.`);
+});
+$('#appliedFilter').addEventListener('change', renderApplied);
 
 // ---------- resume checks ----------
 const WEAK = /^(responsible for|helped|worked on|assisted|tasked with|participated in|duties included)/i;
@@ -725,4 +842,5 @@ if (state.readerKey) $('#readerKey').value = state.readerKey;
 if (state.parsed && (state.jobs.length || state.interns.length)) readInBackground();
 if (state.interns.length && state.parsed) { $('#internStatus').textContent = `${state.interns.length} internships from your last search. Run it again for the newest.`; }
 renderQueue();
-renderTracker();
+renderApplied();
+askIfPending(); // came back after closing the page mid-application

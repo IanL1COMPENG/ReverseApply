@@ -57,6 +57,7 @@
     <button class="tab" data-tab="jobs" role="tab"><i>3</i>Jobs <span id="jobsBadge" class="badge" hidden></span></button>
     <button class="tab" data-tab="interns" role="tab"><i>3</i>Internships <span id="internsBadge" class="badge" hidden></span></button>
     <button class="tab" data-tab="queue" role="tab"><i>4</i>Apply <span id="queueBadge" class="badge" hidden></span></button>
+    <button class="tab" data-tab="applied" role="tab"><i>✓</i>Applied <span id="appliedBadge" class="badge badge-done" hidden></span></button>
     <button class="tab tab-side" data-tab="panel" role="tab">Check my resume</button>
   </div>
 
@@ -203,10 +204,14 @@
       </details>
     </div>
     <div id="queueList" class="job-list"></div>
-    <div class="card mt">
-      <h3>Tracker</h3>
-      <table class="tracker"><thead><tr><th>Date</th><th>Company</th><th>Role</th><th>Score</th><th>Status</th></tr></thead><tbody id="trackerBody"></tbody></table>
-    </div>
+  </div>
+
+  <!-- Applied -->
+  <div class="pane" id="pane-applied">
+    <p class="step-hint"><b>Applied.</b> Every job you told us you applied to. They're taken out of your matches so you never apply twice. Update the status as you hear back.</p>
+    <div id="appliedStats" class="applied-stats"></div>
+    <div class="filters mb"><label>Show <select id="appliedFilter"><option value="">All</option><option>Applied</option><option>Interview</option><option>Offer</option><option>Rejected</option><option>Hired</option></select></label></div>
+    <div id="appliedList" class="job-list"></div>
   </div>
 
   <!-- 5. Panel -->
@@ -272,6 +277,7 @@
     <div id="modalBody"></div>
   </div>
 </div>
+<div class="apply-ask" id="applyAsk" role="dialog" aria-live="polite" hidden></div>
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
