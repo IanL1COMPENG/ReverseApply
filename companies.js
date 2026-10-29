@@ -197,4 +197,29 @@ export const COMPANIES = [
   ['ashby', 'pika'],
   ['ashby', 'suno'],
   ['ashby', 'midjourney'],
+  // Beyond tech: healthcare, retail and consumer brands, media, legal, fitness, education, nonprofits.
+  ['greenhouse', 'onemedical'], ['greenhouse', 'cloverhealth'], ['greenhouse', 'zocdoc'], ['greenhouse', 'mavenclinic'], ['greenhouse', 'talkspace'],
+  ['lever', 'ro'], ['lever', 'everlywell'], ['lever', 'nomihealth'],
+  ['greenhouse', 'lush'], ['greenhouse', 'reformation'], ['greenhouse', 'everlane'], ['greenhouse', 'faire'], ['greenhouse', 'renttherunway'],
+  ['greenhouse', 'stitchfix'], ['greenhouse', 'harrys'], ['greenhouse', 'bombas'], ['greenhouse', 'parachutehome'], ['lever', 'factor'],
+  ['greenhouse', 'axios'], ['greenhouse', 'voxmedia'], ['greenhouse', 'seatgeek'], ['greenhouse', 'classpass'], ['greenhouse', 'mindbody'],
+  ['greenhouse', 'justworks'], ['greenhouse', 'everlaw'], ['greenhouse', 'godaddy'], ['greenhouse', 'wikimedia'], ['greenhouse', 'guild'],
+  ['smartrecruiters', 'BoschGroup'], ['smartrecruiters', 'Equinox'], ['smartrecruiters', 'WesternDigital'], ['smartrecruiters', 'Ubisoft2'],
+  ['smartrecruiters', 'McDonaldsCorporation'], ['smartrecruiters', 'ServiceNow'],
+  // Nursing, home health and mental health (verified live, most postings under 30 days old).
+  ['greenhouse', 'bayada'], ['lever', 'lifestance'], ['greenhouse', 'charliehealth'], ['greenhouse', 'twochairs'], ['greenhouse', 'cortica'],
+  ['greenhouse', 'ayahealthcare'], ['greenhouse', 'tia'], ['greenhouse', 'swordhealth'], ['greenhouse', 'ophelia'], ['greenhouse', 'bicyclehealth'],
+  ['greenhouse', 'workithealth'], ['greenhouse', 'valerahealth'], ['greenhouse', 'carrotfertility'], ['greenhouse', 'omadahealth'], ['greenhouse', 'honor'],
+  ['greenhouse', 'amwell'], ['greenhouse', 'array'], ['greenhouse', 'pelago'],
+  // Labs and life sciences.
+  ['greenhouse', 'natera'], ['greenhouse', 'veracyte'], ['greenhouse', 'freenome'], ['greenhouse', 'butterflynetwork'],
+  // Schools, tutoring and education companies.
+  ['greenhouse', 'achievementfirst'], ['greenhouse', 'harlemvillageacademies'], ['greenhouse', 'sagaeducation'], ['greenhouse', 'ixllearning'],
+  ['greenhouse', 'newsela'], ['greenhouse', 'masterclass'],
+  // Finance and accounting.
+  ['greenhouse', 'billcom'], ['greenhouse', 'upstart'], ['greenhouse', 'sezzle'], ['greenhouse', 'pilothq'], ['lever', 'floqast'], ['lever', 'basis'],
+  // Hotels, retail, media, nonprofits and government services.
+  ['smartrecruiters', 'AccorHotel'], ['smartrecruiters', 'HMGroup'], ['smartrecruiters', 'Primark'], ['smartrecruiters', 'Sutherland'],
+  ['greenhouse', 'mejuri'], ['greenhouse', 'quince'], ['greenhouse', 'stockx'], ['greenhouse', 'ww'], ['greenhouse', 'homelight'],
+  ['greenhouse', 'hearst'], ['greenhouse', 'codeforamerica'], ['lever', 'charitywater'],
 ];

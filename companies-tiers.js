@@ -70,7 +70,10 @@ export function companyTier(name, boardSize = 0, { intern = false, title = '' } 
   const n = norm(name);
   const t = TIER_OF.get(n) || TIER_OF.get(PREFIXES.find(k => n.startsWith(k)));
   if (t) return t;
-  if (boardSize > 300) return 3;
+  // A big board usually means a well-known employer, except for high-volume hiring (nursing, retail, hotels,
+  // care work), where hundreds of openings mean they need people and odds are better, not worse.
+  const volume = /\b(nurse|rn|lpn|cna|caregiver|aide|therapist|technician|associate|cashier|attendant|server|cook|driver|warehouse|sales advisor|crew|housekeep|concierge|room|teacher|tutor|coach|care)\b/i.test(title);
+  if (boardSize > 300 && !volume) return 3;
   if (intern && /software|engineer|developer|data|machine learning|\bml\b|\bai\b|quant|trading|product manag|research|design/i.test(title)) return 3;
   return 4;
 }

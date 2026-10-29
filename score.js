@@ -1,8 +1,10 @@
 // Rates a job 1.0–5.0 for one candidate, with the reasons behind the number.
 import { skillWeights, pretty } from './skills.js';
-import { titleMatcher, internMatcher } from './search.js';
+import { titleMatcher, internMatcher, pathFits } from './search.js';
 import { companyTier, TIER_LABEL } from './companies-tiers.js';
-import { requirementFit } from './reqs.js';
+import { requirementFit, eligibilityChecks } from './reqs.js';
+import { PATHS, PATH_BY_ID } from './careers.js';
+import { wordingFit } from './match.js';
 
 const LEVELS = ['Internship', 'Entry level', 'Mid level', 'Senior', 'Staff / Lead', 'Director+'];
 
@@ -11,7 +13,10 @@ export function jobLevel(title, desc = '') {
   const yrs = requiredYears(desc);
   if (/\b(intern|internship|co-op|apprentice)\b/.test(t)) return 0;
   if (/\b(vp|svp|evp|vice president|director|head of|chief|cto|ceo|cfo)\b/.test(t)) return 5;
-  if (/\b(staff|principal|distinguished|architect|fellow)\b|\b(engineering|senior|group) manager\b|\b(iv|v)\b|\blevel [4-9]\b/.test(t)) return 4;
+  // "Staff Engineer" is senior; "Staff Accountant", "Staff Nurse", "Staff Writer" are entry-level jobs.
+  const staff = /\bstaff\b(?!\s+(?:accountant|auditor|accounting|nurse|rn|lpn|writer|assistant|attorney|pharmacist|physician|therapist|associate|member|technician|tax|accountant|photographer|reporter|editor|analyst|interpreter|aide|chef|cook))/;
+  if (staff.test(t) || /\b(principal|distinguished|architect|fellow)\b|\b(engineering|senior|group) manager\b|\b(iv|v)\b|\blevel [4-9]\b/.test(t)) return 4;
+  if (/\bstaff (accountant|auditor|nurse|rn|lpn|writer|assistant|accounting|tax)\b/.test(t)) return yrs !== null && yrs >= 3 ? 2 : 1;
   if (/\b(senior|sr\.?|iii|lead|expert)\b/.test(t)) return 3;
   if (/\b(junior|jr\.?|entry|new grad|graduate|early career|university grad|college grad|i|level 1)\b/.test(t) || /\bassociate\b(?! (director|manager|principal))/.test(t)) return yrs !== null && yrs >= 3 ? 2 : 1;
   if (/\b(ii|level 2)\b/.test(t)) return 2;
@@ -38,18 +43,24 @@ export function scoreJob(job, resume, prefs) {
   const flags = [];
 
   const hitRole = prefs.roles.find(r => titleMatcher([r])(job.title));
-  const roleHit = !prefs.roles.length || !!hitRole;
+  // A job listed in your field's category (e.g. "Healthcare" for a nursing resume) counts, a little below an exact title.
+  const fieldHit = !hitRole && pathFits(job, prefs.paths);
+  const roleHit = !prefs.roles.length || !!hitRole || fieldHit;
   const major = degreeFit(job, resume, { student: false });
-  const title = Math.min(roleHit ? 1 : 0.45, major.fit);
+  const title = Math.min(hitRole || !prefs.roles.length ? 1 : fieldHit ? 0.75 : 0.45, major.fit);
   if (hitRole) reasons.push(`Matches your target role "${hitRole}"`);
+  else if (fieldHit) reasons.push(`In your field (${job.category || 'same category'})`);
   else if (prefs.roles.length) flags.push(`Not one of your target roles (${prefs.roles.join(', ')})`);
+  const away = otherField(job, prefs, roleHit && prefs.roles.length);
+  if (away) flags.push(`A ${away} job: a different field from yours`);
   reasons.push(...major.reasons); flags.push(...major.flags);
 
   const { skills: keywordSkills, matched, missing, want } = skillFit(text, job, resume);
   if (want.length >= 3) reasons.push(`You have ${matched.length} of ${want.length} skills it asks for`);
   const req = reqCheck(job, resume, keywordSkills);
-  const skills = req.skills;
-  reasons.push(...req.reasons); flags.push(...req.flags);
+  const words = wordingMatch(job, resume, want.length);
+  const skills = words ? (1 - words.mix) * req.skills + words.mix * words.score : req.skills;
+  reasons.push(...req.reasons, ...(words?.reasons || [])); flags.push(...req.flags, ...(words?.flags || []));
 
   const jl = jobLevel(job.title, job.desc);
   // Students and recent grads are entry-level however many dated side gigs the resume lists.
@@ -91,10 +102,10 @@ export function scoreJob(job, resume, prefs) {
 
   const raw = 0.2 * title + 0.3 * skills + 0.25 * exp.score + 0.15 * seniority + 0.05 + 0.05 * fresh;
   // For full-time roles, solid related work experience can stand in for the "right" degree.
-  let score = Math.min(exp.score >= 0.6 ? 5 : major.cap, roleHit ? 5 : 2.8, req.cap, levelCap, 1 + 4 * raw - comp.penalty);
+  let score = Math.min(exp.score >= 0.6 ? 5 : major.cap, roleHit ? 5 : away ? 2.2 : 2.8, req.cap, levelCap, 1 + 4 * raw - comp.penalty);
 
-  if (prefs.needsSponsor && /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor/i.test(job.desc)) { score = Math.min(score, 1.8); flags.push('Says it will not sponsor visas'); }
-  if (/(security|secret|ts\/sci) clearance (is )?required|active (secret|ts\/sci|top secret)/i.test(job.desc) && !/clearance/i.test(resume.text)) { score = Math.min(score, 2.4); flags.push('Requires a security clearance'); }
+  const elig = eligibility(job, prefs);
+  score = Math.min(score, elig.cap); flags.push(...elig.flags);
   if (!job.descLoaded) flags.push(titleOnlyNote(job));
 
   score = Math.round(Math.min(5, Math.max(1, score)) * 10) / 10;
@@ -102,7 +113,7 @@ export function scoreJob(job, resume, prefs) {
     score, matched: [...new Set([...matched, ...req.have])],
     missing: [...new Set([...req.lack, ...missing])].filter(s => !matched.includes(s) && !req.have.includes(s)).slice(0, 15),
     parts: { title, skills, experience: exp.score, seniority, odds: comp.odds, fresh },
-    reasons, flags, tier: comp.tier, related: exp.related, reqs: req.summary,
+    reasons, flags, tier: comp.tier, related: exp.related, reqs: req.summary, eligibility: elig.checks, wording: words && { hit: words.hit, near: words.near, miss: words.miss },
     verdict: score >= 4.5 ? 'Apply now' : score >= 4 ? 'Strong fit, apply' : score >= 3 ? 'Possible, only with a reason' : 'Skip',
     label: matched.slice(0, 5).map(pretty).join(', '),
   };
@@ -348,22 +359,25 @@ export function scoreInternship(job, resume, prefs) {
   const flags = [];
 
   // Which of your target roles this is, and how closely; it is named so the reason is never a mystery.
-  const m = internMatcher(prefs.roles)(job);
+  const m = internMatcher(prefs.roles, prefs.paths)(job);
   const major = degreeFit(job, resume, { student: true });
   // Field = does it match what you want AND what you study.
   const roleFit = { exact: 1, field: 0.75, category: 0.6, any: 0.7 }[m?.kind] ?? 0.3;
   const title = Math.min(roleFit, major.fit);
   if (m?.kind === 'exact') reasons.push(`Matches your target role "${m.role}"`);
   else if (m?.kind === 'field') reasons.push(`Same field as your target role "${m.role}"`);
-  else if (m?.kind === 'category') reasons.push(`Listed under the same category as your target role "${m.role}"`);
+  else if (m?.kind === 'category') reasons.push(m.path ? `In your field (${m.path})` : `Listed under the same category as your target role "${m.role}"`);
   else if (!m) flags.push(`Not one of your target roles (${prefs.roles.join(', ')})`);
+  const away = otherField(job, prefs, !!m);
+  if (away) flags.push(`A ${away} internship: a different field from yours`);
   reasons.push(...major.reasons); flags.push(...major.flags);
 
   const { skills: keywordSkills, matched, missing, want } = skillFit(text, job, resume);
   if (want.length >= 3) reasons.push(`You have ${matched.length} of ${want.length} skills it asks for`);
   const req = reqCheck(job, resume, keywordSkills);
-  const skills = req.skills;
-  reasons.push(...req.reasons); flags.push(...req.flags);
+  const words = wordingMatch(job, resume, want.length);
+  const skills = words ? (1 - words.mix) * req.skills + words.mix * words.score : req.skills;
+  reasons.push(...req.reasons, ...(words?.reasons || [])); flags.push(...req.flags, ...(words?.flags || []));
 
   let student = 1;
   let cap = 5; // hard eligibility rules cap the score instead of just lowering it
@@ -394,11 +408,9 @@ export function scoreInternship(job, resume, prefs) {
   reasons.push(...comp.reasons); flags.push(...comp.flags);
 
   // Not one of the roles you asked for: it can't be a strong fit for you, however the rest scores.
-  let score = Math.min(cap, major.cap, m ? 5 : 2.8, req.cap, 1 + 4 * (0.2 * title + 0.32 * skills + 0.28 * exp.score + 0.1 * student + 0.05 + 0.05 * fresh) - comp.penalty);
-  const notUs = prefs.needsSponsor || prefs.otherCountry;
-  if (notUs && (/does not offer sponsorship|citizenship is required/i.test(job.sponsorship) || /(no|not|unable to|cannot|won't|will not)\s+(provide\s+|offer\s+)?(visa\s+)?sponsor|u\.s\. citizen(ship)? (is )?required/i.test(job.desc))) {
-    score = Math.min(score, 1.8); flags.push(job.sponsorship ? `${job.sponsorship}` : 'Will not sponsor visas');
-  } else if (/citizenship is required/i.test(job.sponsorship)) flags.push('U.S. citizens only');
+  let score = Math.min(cap, major.cap, m ? 5 : away ? 2.2 : 2.8, req.cap, 1 + 4 * (0.2 * title + 0.32 * skills + 0.28 * exp.score + 0.1 * student + 0.05 + 0.05 * fresh) - comp.penalty);
+  const elig = eligibility(job, prefs);
+  score = Math.min(score, elig.cap); flags.push(...elig.flags);
   // Without the posting text we can't check skills or class year, so it can't earn a 4+ yet.
   if (!job.descLoaded) { score = Math.min(score, 3.9); flags.push(titleOnlyNote(job)); }
 
@@ -407,7 +419,7 @@ export function scoreInternship(job, resume, prefs) {
     score, matched: [...new Set([...matched, ...req.have])],
     missing: [...new Set([...req.lack, ...missing])].filter(s => !matched.includes(s) && !req.have.includes(s)).slice(0, 15),
     parts: { title, skills, experience: exp.score, seniority: student, odds: comp.odds, fresh },
-    reasons, flags, student: true, tier: comp.tier, related: exp.related, reqs: req.summary,
+    reasons, flags, student: true, tier: comp.tier, related: exp.related, reqs: req.summary, eligibility: elig.checks, wording: words && { hit: words.hit, near: words.near, miss: words.miss },
     verdict: score >= 4.5 ? 'Apply now: great student fit' : score >= 4 ? 'Strong fit for you' : score >= 3 ? 'Possible stretch' : 'Skip this one',
     label: matched.slice(0, 5).map(pretty).join(', '),
   };
@@ -484,7 +496,8 @@ const FAMILIES = {
   design: [/\bdesign\b|graphic|fine arts?\b|\bart\b|architecture|human.computer interaction|\bHCI\b|animation|film/i, 'Design/Arts'],
   science: [/biology|chemistry|neuroscience|biochem|health|nursing|pharmac|kinesiology|environmental|life sciences?|biomedical sciences?|public health/i, 'Science/Health'],
   social: [/psychology|sociology|political science|history|anthropology|international (relations|studies)|public policy|philosophy|criminal justice/i, 'Social Sciences'],
-  edu: [/\beducation\b|teaching/i, 'Education'],
+  // "related education and/or experience" is not a request for Education majors.
+  edu: [/(?<!(?:related|additional|continuing|equivalent|higher|formal|post-?secondary|level of|years of|combination of|and\/or)\s)\beducation\b(?!\s*(?:and\/or|or|&|and|,)\s*(?:related\s+|relevant\s+)?(?:work\s+)?(?:experience|training|certification))|\bteaching\b/i, 'Education'],
   law: [/\blaw\b|legal studies|pre-law/i, 'Law'],
 };
 const RELATED = { cs: ['math', 'eng'], eng: ['cs', 'math'], math: ['cs', 'eng', 'business'], business: ['comm', 'math'], comm: ['business', 'design'], design: ['comm', 'cs'], science: ['eng'], social: ['comm', 'edu', 'law'], edu: ['social'], law: ['social', 'business'] };
@@ -505,7 +518,9 @@ function wantedMajors(desc = '') {
     ...[...desc.matchAll(/\b(?:degree|majoring|major|pursuing|studying|enrolled|discipline|field of study|bachelor['’]?s|B\.?S\.?|B\.?A\.?)\b([^;\n]{0,160})/gi)].map(m => cut(m[1])),
     ...[...desc.matchAll(/([A-Za-z ,&/-]{3,90}?)\s+(?:majors|students|degree|background)\b/g)].map(m => m[1].split(/[.;:]/).pop()),
   ];
-  const fams = [...new Set(windows.flatMap(familiesIn))];
+  // "training and education needed" is not a request for Education majors: that one needs a major-like phrase.
+  const EDU_MAJOR = /\b(?:early childhood|elementary|secondary|special|physical|music|art|math|science|english|bilingual|teacher)\s+education\b|\beducation (?:majors?|degree|program)\b|\b(?:degree|major(?:ing)?|bachelor['’]?s?|B\.?[AS]\.?|M\.?Ed\.?)\s+(?:in\s+)?education\b|\bteaching (?:degree|credential|certificat\w*|licen[cs]e)\b/i;
+  const fams = [...new Set(windows.flatMap(familiesIn))].filter(f => f !== 'edu' || windows.some(w => EDU_MAJOR.test(w)) || EDU_MAJOR.test(desc));
   return { fams, related: windows.some(w => /related (technical |quantitative )?(field|discipline|major|area)|similar field|equivalent/i.test(w)) || /related (technical )?field/i.test(desc) && fams.length > 0 };
 }
 
@@ -557,6 +572,46 @@ function reqCheck(job, resume, keywordSkills) {
     reasons.push(`Meets ${r.niceRate.met} of ${r.niceRate.n} nice-to-haves`);
   }
   return { skills, cap, reasons, flags, summary, lack, have };
+}
+
+// A job whose title belongs to another career path than any of yours ("Assistant Teacher" for a nurse).
+function otherField(job, prefs, matched) {
+  if (matched || !prefs.roles?.length || !prefs.paths?.length) return null;
+  if (prefs.paths.some(id => PATH_BY_ID[id]?.title.test(job.title))) return null;
+  return PATHS.find(p => p.title.test(job.title))?.label.toLowerCase() || null;
+}
+
+// ---------- wording: how much of the posting's own language your resume uses ----------
+// The skills list knows tools; for nursing, teaching, sales or accounting most of what screeners search for is
+// plain wording ("patient care", "lesson plans"). It weighs more when the posting names few known skills.
+function wordingMatch(job, resume, knownSkills) {
+  if (!job.descLoaded || (job.desc || '').length < 200) return null;
+  // Only requirement lines a resume can show (not eligibility or personality lines) supply phrases.
+  const r = requirementFit(job.desc, resume);
+  const lines = r ? [...r.must, ...r.nice].filter(i => ['met', 'partial', 'missing'].includes(i.status)).map(i => i.text) : [];
+  const w = wordingFit(job.desc, resume.text || '', job.company, lines, resume.skills);
+  const mix = knownSkills >= 6 ? 0.2 : knownSkills >= 3 ? 0.35 : 0.5;
+  const reasons = [], flags = [];
+  if (w.score >= 0.7) reasons.push(`Your resume uses much of the posting's wording${w.hit.length ? ` (${w.hit.slice(0, 3).join(', ')})` : ''}`);
+  if (w.near.length) reasons.push(`Worth writing the posting's way: ${w.near.slice(0, 3).map(p => `"${p}"`).join(', ')} (you have the words, not the phrase)`);
+  else if (w.score < 0.35 && w.miss.length >= 3) flags.push(`Your resume uses little of the posting's wording (${w.miss.slice(0, 3).join(', ')})`);
+  return { ...w, mix, reasons, flags };
+}
+
+// ---------- eligibility: citizenship, clearance, sponsorship, license ----------
+// These never come from the resume. They're checked against your profile, and only a requirement you
+// actually fail lowers the score.
+const ELIG_CAP = { citizenship: 1.5, clearance: 2.0, sponsorship: 1.8, authorization: 1.8 };
+function eligibility(job, prefs) {
+  const auth = prefs.auth || (prefs.needsSponsor ? 'Need visa sponsorship' : prefs.otherCountry ? 'Authorized (other country)' : '');
+  const checks = job.descLoaded || job.sponsorship ? eligibilityChecks(`${job.sponsorship ? `${job.sponsorship}.\n` : ''}${job.desc || ''}`, { auth, clearance: prefs.clearance, license: prefs.license }) : [];
+  let cap = 5;
+  const flags = [];
+  for (const c of checks) {
+    if (c.status === 'no') { cap = Math.min(cap, ELIG_CAP[c.kind] || 3); flags.push(`Not eligible: ${c.note}`); }
+    else if (c.status === 'check' && ELIG_CAP[c.kind]) flags.push(c.note);
+  }
+  return { cap, flags, checks };
 }
 
 export const scoreClass = s => `s${Math.max(1, Math.min(5, Math.floor(s)))}`;

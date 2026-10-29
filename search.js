@@ -1,8 +1,9 @@
 // Pulls openings straight from employer job boards and remote job feeds, then filters them.
 import { COMPANIES } from './companies.js';
+import { PATH_BY_ID } from './careers.js';
 
 const DAY = 86400000;
-const NAMES = { doordashusa: 'DoorDash', gleanwork: 'Glean', wizinc: 'Wiz', dbtlabsinc: 'dbt Labs', claylabs: 'Clay', andurilindustries: 'Anduril', scaleai: 'Scale AI', xai: 'xAI', openai: 'OpenAI', squareup: 'Square', hellofresh: 'HelloFresh', getyourguide: 'GetYourGuide', sumup: 'SumUp', n8n: 'n8n', deepl: 'DeepL', alephalpha: 'Aleph Alpha', elevenlabs: 'ElevenLabs', hackerone: 'HackerOne', workos: 'WorkOS', posthog: 'PostHog', planetscale: 'PlanetScale', cockroachlabs: 'Cockroach Labs', launchdarkly: 'LaunchDarkly', digitalocean: 'DigitalOcean', pagerduty: 'PagerDuty', newrelic: 'New Relic', mongodb: 'MongoDB', gitlab: 'GitLab', github: 'GitHub', hubspot: 'HubSpot', sofi: 'SoFi', clickup: 'ClickUp', runwayml: 'Runway', humeai: 'Hume AI', arizeai: 'Arize AI', grafanalabs: 'Grafana Labs', hudsonrivertrading: 'Hudson River Trading', janestreet: 'Jane Street', twosigma: 'Two Sigma', akunacapital: 'Akuna Capital', sig: 'SIG', imc: 'IMC', drw: 'DRW', appliedintuition: 'Applied Intuition', lucidmotors: 'Lucid Motors', warbyparker: 'Warby Parker', sentinelone: 'SentinelOne', crowdstrike: 'CrowdStrike', abnormalsecurity: 'Abnormal Security', '1password': '1Password', 'black-forest-labs': 'Black Forest Labs', isomorphiclabs: 'Isomorphic Labs', stabilityai: 'Stability AI', backmarket: 'Back Market', blablacar: 'BlaBlaCar', gocardless: 'GoCardless', truelayer: 'TrueLayer', jumpcloud: 'JumpCloud', shieldai: 'Shield AI' };
+const NAMES = { doordashusa: 'DoorDash', gleanwork: 'Glean', wizinc: 'Wiz', dbtlabsinc: 'dbt Labs', claylabs: 'Clay', andurilindustries: 'Anduril', scaleai: 'Scale AI', xai: 'xAI', openai: 'OpenAI', squareup: 'Square', hellofresh: 'HelloFresh', getyourguide: 'GetYourGuide', sumup: 'SumUp', n8n: 'n8n', deepl: 'DeepL', alephalpha: 'Aleph Alpha', elevenlabs: 'ElevenLabs', hackerone: 'HackerOne', workos: 'WorkOS', posthog: 'PostHog', planetscale: 'PlanetScale', cockroachlabs: 'Cockroach Labs', launchdarkly: 'LaunchDarkly', digitalocean: 'DigitalOcean', pagerduty: 'PagerDuty', newrelic: 'New Relic', mongodb: 'MongoDB', gitlab: 'GitLab', github: 'GitHub', hubspot: 'HubSpot', sofi: 'SoFi', clickup: 'ClickUp', runwayml: 'Runway', humeai: 'Hume AI', arizeai: 'Arize AI', grafanalabs: 'Grafana Labs', hudsonrivertrading: 'Hudson River Trading', janestreet: 'Jane Street', twosigma: 'Two Sigma', akunacapital: 'Akuna Capital', sig: 'SIG', imc: 'IMC', drw: 'DRW', appliedintuition: 'Applied Intuition', lucidmotors: 'Lucid Motors', warbyparker: 'Warby Parker', sentinelone: 'SentinelOne', crowdstrike: 'CrowdStrike', abnormalsecurity: 'Abnormal Security', '1password': '1Password', 'black-forest-labs': 'Black Forest Labs', isomorphiclabs: 'Isomorphic Labs', stabilityai: 'Stability AI', backmarket: 'Back Market', blablacar: 'BlaBlaCar', gocardless: 'GoCardless', truelayer: 'TrueLayer', jumpcloud: 'JumpCloud', shieldai: 'Shield AI', bayada: 'BAYADA', lifestance: 'LifeStance Health', charliehealth: 'Charlie Health', twochairs: 'Two Chairs', ayahealthcare: 'Aya Healthcare', ixllearning: 'IXL Learning', billcom: 'BILL', pilothq: 'Pilot', ww: 'WW (WeightWatchers)', hmgroup: 'H&M', accorhotel: 'Accor', codeforamerica: 'Code for America', charitywater: 'charity: water', achievementfirst: 'Achievement First', harlemvillageacademies: 'Harlem Village Academies', sagaeducation: 'Saga Education', workithealth: 'Workit Health', valerahealth: 'Valera Health', carrotfertility: 'Carrot Fertility', omadahealth: 'Omada Health', butterflynetwork: 'Butterfly Network', swordhealth: 'Sword Health', bicyclehealth: 'Bicycle Health', homelight: 'HomeLight', stockx: 'StockX', onemedical: 'One Medical', cloverhealth: 'Clover Health', mavenclinic: 'Maven Clinic', renttherunway: 'Rent the Runway', stitchfix: 'Stitch Fix', voxmedia: 'Vox Media', seatgeek: 'SeatGeek', classpass: 'ClassPass', godaddy: 'GoDaddy' };
 export const companyName = slug => NAMES[slug.toLowerCase()] || slug.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 const htmlToText = html => {
@@ -30,7 +31,8 @@ async function pool(items, n, fn) {
 
 const fromGreenhouse = (slug, j) => ({
   id: `gh-${slug}-${j.id}`, ats: 'greenhouse', slug, jobId: j.id, company: j.company_name || companyName(slug), title: j.title,
-  location: j.location?.name || '', posted: Date.parse(j.first_published || j.updated_at) || 0,
+  // Some boards append map coordinates: "Granada, MN 56039 | 43.67 | -94.32".
+  location: (j.location?.name || '').replace(/\s*\|\s*-?\d+\.\d+/g, ''), posted: Date.parse(j.first_published || j.updated_at) || 0,
   url: j.absolute_url, applyUrl: j.absolute_url, desc: '', descLoaded: false,
 });
 const fromLever = (slug, j) => ({
@@ -46,9 +48,27 @@ const fromAshby = (slug, j) => ({
   desc: j.descriptionPlain || htmlToText(j.descriptionHtml), descLoaded: true,
 });
 
+const fromSmartRecruiters = (slug, j) => ({
+  id: `sr-${slug}-${j.id}`, ats: 'smartrecruiters', slug, jobId: j.id, company: j.company?.name || companyName(slug), title: j.name,
+  location: (j.location?.fullLocation || [j.location?.city, j.location?.region].filter(Boolean).join(', ')) + (j.location?.remote ? ' (Remote)' : ''),
+  posted: Date.parse(j.releasedDate) || 0, url: `https://jobs.smartrecruiters.com/${slug}/${j.id}`, applyUrl: `https://jobs.smartrecruiters.com/${slug}/${j.id}`,
+  desc: '', descLoaded: false,
+});
+// SmartRecruiters boards can hold thousands of openings worldwide: take the newest 300 in the US.
+async function smartRecruitersBoard(slug) {
+  const out = [];
+  for (let offset = 0; offset < 300; offset += 100) {
+    const r = await getJson(`https://api.smartrecruiters.com/v1/companies/${slug}/postings?country=us&limit=100&offset=${offset}`);
+    out.push(...(r.content || []).map(j => fromSmartRecruiters(slug, j)));
+    if (offset + 100 >= (r.totalFound || 0)) break;
+  }
+  return out;
+}
+
 async function fetchBoard(ats, slug) {
   const list = ats === 'greenhouse' ? (await getJson(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`)).jobs.map(j => fromGreenhouse(slug, j))
     : ats === 'lever' ? (await getJson(`https://api.lever.co/v0/postings/${slug}?mode=json`)).map(j => fromLever(slug, j))
+    : ats === 'smartrecruiters' ? await smartRecruitersBoard(slug)
     : (await getJson(`https://api.ashbyhq.com/posting-api/job-board/${slug}`)).jobs.filter(j => j.isListed !== false).map(j => fromAshby(slug, j));
   // How many openings the employer has is a rough size signal for the competition estimate.
   for (const j of list) j.boardSize = list.length;
@@ -198,11 +218,31 @@ async function remoteFeeds(terms) {
   return out;
 }
 
+// The Muse: one public feed covering every field (healthcare, education, accounting, marketing, HR, legal,
+// hospitality, trades...), with full descriptions included. About 500 requests an hour per visitor.
+// Its pages are not in date order and many listings are old, so the search keeps only recent ones.
+const MUSE = 'https://www.themuse.com/api/public/jobs';
+const fromMuse = j => ({
+  id: `mu-${j.id}`, ats: 'the muse', company: j.company?.name || '', title: j.name || '',
+  location: (j.locations || []).map(l => l.name).join(' / '), posted: Date.parse(j.publication_date) || 0,
+  url: j.refs?.landing_page || '', applyUrl: j.refs?.landing_page || '', desc: htmlToText(j.contents), descLoaded: true,
+  category: (j.categories || []).map(c => c.name).join(', '), levels: (j.levels || []).map(l => l.name), museField: true,
+});
+async function museFeed(categories, { interns, pages = 8 }) {
+  if (!categories.length) return [];
+  const q = categories.map(c => `category=${encodeURIComponent(c)}`).join('&') + (interns ? '&level=Internship' : '');
+  const out = [];
+  await pool(Array.from({ length: pages }, (_, i) => i), 4, async p => {
+    try { out.push(...((await getJson(`${MUSE}?${q}&page=${p}`)).results || []).map(fromMuse)); } catch { /* keep the pages that worked */ }
+  });
+  return out;
+}
+
 // Turns pasted board links into [ats, slug] pairs.
 export function parseBoardLinks(text) {
   const out = [];
-  for (const m of (text || '').matchAll(/(greenhouse\.io|lever\.co|ashbyhq\.com)\/(?:embed\/job_board\?for=|v1\/boards\/)?([A-Za-z0-9_.-]+)/g)) {
-    out.push([m[1].startsWith('green') ? 'greenhouse' : m[1].startsWith('lever') ? 'lever' : 'ashby', m[2]]);
+  for (const m of (text || '').matchAll(/(greenhouse\.io|lever\.co|ashbyhq\.com|smartrecruiters\.com)\/(?:embed\/job_board\?for=|v1\/boards\/)?([A-Za-z0-9_.-]+)/g)) {
+    out.push([m[1].startsWith('green') ? 'greenhouse' : m[1].startsWith('lever') ? 'lever' : m[1].startsWith('smart') ? 'smartrecruiters' : 'ashby', m[2]]);
   }
   return out;
 }
@@ -240,9 +280,10 @@ const stemOf = w => { const s = w.replace(/(ing|ers|er|ial|ics|ical|ist|s|e)$/, 
 //   field    - every key word of the role is in the title ("data analyst" -> "Data Science Intern")
 //   category - the internship list files it under that role's category
 // Returns null when it matches none of the roles.
-export function internMatcher(roles) {
+export function internMatcher(roles, paths = []) {
   const cleaned = roles.map(r => r.replace(INTERN_RE, '').trim()).filter(Boolean);
   if (!cleaned.length) return () => ({ role: '', kind: 'any' });
+  const fieldHit = job => pathFits(job, paths);
   const parts = cleaned.map(role => ({
     role,
     exact: titleMatcher([role]),
@@ -256,9 +297,18 @@ export function internMatcher(roles) {
         : kind === 'field' ? p.words.length && p.words.every(w => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(t))
           : job.category && p.cats.some(c => c.test(job.category)));
     for (const kind of ['exact', 'field', 'category']) { const p = hit(kind); if (p) return { role: p.role, kind }; }
+    // An all-industry listing in the resume's own career path ("Staff Accountant" for an accounting major).
+    if (fieldHit(job)) return { role: cleaned[0], kind: 'category', path: fieldPath(job, paths)?.label };
     return null;
   };
 }
+
+// Does this listing belong to one of the resume's career paths? Its title must name that path's kind of work,
+// so a "Registered Nurse" posting never reaches an accounting student just because both are "Healthcare".
+export function pathFits(job, paths = []) {
+  return !!(job.museField && paths?.length && fieldPath(job, paths));
+}
+const fieldPath = (job, paths) => paths.map(id => PATH_BY_ID[id]).find(p => p?.title.test(job.title));
 
 const US_STATES = 'AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split(' ');
 const US_RE = new RegExp(`united states|\\busa?\\b|\\bu\\.s\\.|,\\s?(${US_STATES.join('|')})\\b|new york|san francisco|seattle|austin|boston|chicago|los angeles|denver|atlanta|miami|washington|bay area|silicon valley|remote - us|north america|americas`, 'i');
@@ -282,21 +332,24 @@ export function locationOk(job, where, places) {
 // One pass over every source, split into two lanes: full-time jobs and internships for students.
 export async function searchJobs(prefs, extraBoards, onProgress) {
   const matchTitle = titleMatcher(prefs.roles);
-  const matchIntern = internMatcher(prefs.roles);
+  const paths = prefs.paths || [];
+  const matchIntern = internMatcher(prefs.roles, paths);
   const exclude = prefs.exclude.map(s => s.toLowerCase()).filter(x => x && !INTERN_RE.test(x));
   const maxAge = prefs.ageDays * DAY;
   // Internship recruiting runs months ahead, so that lane looks back at least 90 days.
   const internAge = Math.max(prefs.ageDays, 90) * DAY;
   const common = (j, age) => !exclude.some(x => j.title.toLowerCase().includes(x)) && !(j.posted && Date.now() - j.posted > age) && locationOk(j, prefs.where, prefs.places);
-  const keepJob = j => !isInternTitle(j.title) && (!prefs.roles.length || matchTitle(j.title)) && common(j, maxAge);
-  const keepIntern = j => (j.id.startsWith('il-') || isInternTitle(j.title)) && matchIntern(j)
+  // The all-industry feed posts few listings per day per field, so it looks back at least 45 days.
+  const keepJob = j => !isInternTitle(j.title) && !j.levels?.includes('Internship') && (!prefs.roles.length || matchTitle(j.title) || pathFits(j, paths)) && common(j, j.museField ? Math.max(maxAge, 45 * DAY) : maxAge);
+  const keepIntern = j => (j.id.startsWith('il-') || isInternTitle(j.title) || j.levels?.includes('Internship')) && matchIntern(j)
     && (prefs.gradStudent || !(GRAD_ONLY.test(j.title) || /\b(MS|M\.S\.|PhD)\b/.test(j.title) || j.degrees?.some(d => /phd|master/i.test(d)) && !j.degrees.some(d => /bachelor/i.test(d)))) && common(j, internAge);
 
   const boards = prefs.useAts ? [...COMPANIES, ...extraBoards] : extraBoards;
   const seen = new Set(), seenIntern = new Set();
   const jobs = [], interns = [];
   let done = 0, scanned = 0;
-  const total = boards.length + (prefs.useRemote ? 1 : 0) + (prefs.useInterns ? 1 : 0);
+  const cats = prefs.useMuse === false ? [] : prefs.museCats || [];
+  const total = boards.length + (prefs.useRemote ? 1 : 0) + (prefs.useInterns ? 1 : 0) + (cats.length ? 2 : 0);
   const tick = () => onProgress?.({ done: ++done, total, scanned, found: jobs.length, foundInterns: interns.length });
   const internKey = j => `${j.company}|${j.title}`.toLowerCase().replace(/\W+/g, '');
   const add = list => {
@@ -313,6 +366,8 @@ export async function searchJobs(prefs, extraBoards, onProgress) {
     pool(boards, 14, async ([ats, slug]) => { try { add(await fetchBoard(ats, slug)); } finally { tick(); } }),
     prefs.useRemote ? remoteFeeds(prefs.roles).then(add).finally(tick) : null,
     prefs.useInterns ? internLists().then(add).finally(tick) : null,
+    cats.length ? museFeed(cats, { interns: false, pages: 15 }).then(add).catch(() => {}).finally(tick) : null,
+    cats.length && prefs.useInterns ? museFeed(cats, { interns: true, pages: 5 }).then(add).catch(() => {}).finally(tick) : cats.length ? tick() : null,
   ]);
 
   // Fill descriptions from the cache and the public APIs now; the page reader runs afterwards in the background.

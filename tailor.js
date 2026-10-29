@@ -1,6 +1,6 @@
 // Tailors a parsed resume to one job and renders it as an ATS-friendly PDF.
 // Rule from career-ops: keywords get reordered and emphasised, never invented.
-import { pretty, skillWeights } from './skills.js';
+import { pretty, skillWeights, spellingIn } from './skills.js';
 
 const BULLET = /^[•\-*▪◦●■►‣–]\s*/;
 const ORDER = ['summary', 'skills', 'experience', 'projects', 'leadership', 'education', 'certifications', 'awards'];
@@ -8,13 +8,16 @@ const ORDER = ['summary', 'skills', 'experience', 'projects', 'leadership', 'edu
 export function tailorResume(parsed, profile, job, fit, extraSkills = []) {
   const weights = skillWeights(`${job.title}\n${job.desc}`);
   const hits = line => Object.keys(weights).reduce((n, s) => n + (new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(line) ? weights[s] : 0), 0);
-  const lead = [...fit.matched].sort((a, b) => weights[b] - weights[a]);
+  const lead = [...fit.matched].sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
+  // Matched skills are written the way this posting writes them ("MS Excel", "Microsoft Office 365").
+  const jobText = `${job.title}\n${job.desc || ''}`;
+  const word = s => spellingIn(s, jobText) || pretty(s);
 
   const sections = [];
   const bySection = key => parsed.sections.filter(s => s.key === key);
 
   const summary = bySection('summary').flatMap(s => s.lines);
-  const focus = [...lead, ...extraSkills].slice(0, 6).map(pretty);
+  const focus = [...lead, ...extraSkills].slice(0, 6).map(word);
   const edu = parsed.education || {};
   // Students lead with who they are (school, major, class year) and put Education right under it.
   const studentLead = () => {
@@ -29,7 +32,7 @@ export function tailorResume(parsed, profile, job, fit, extraSkills = []) {
   if (fit.student) for (const s of bySection('education')) sections.push({ title: s.title || 'Education', lines: s.lines });
 
   const original = bySection('skills').flatMap(s => s.lines).join(', ').replace(BULLET, '');
-  const relevant = [...new Set([...lead, ...extraSkills])].map(pretty);
+  const relevant = [...new Set([...new Set([...lead, ...extraSkills])].map(word))];
   const others = parsed.skills.filter(s => !lead.includes(s) && !extraSkills.includes(s)).map(pretty);
   const extraOriginal = original.split(/[,;|•\n]/).map(s => s.replace(/^[^:]*:\s*/, '').trim()).filter(s => s && s.length < 40 && ![...relevant, ...others].some(r => r.toLowerCase() === s.toLowerCase()));
   sections.push({ title: 'Skills', lines: [
@@ -159,8 +162,9 @@ export function applicationAnswers(profile, job, fit, edu = {}) {
     ...student,
     'First name': first || '', 'Last name': rest.join(' '), Email: profile.email, Phone: profile.phone,
     Location: profile.location, LinkedIn: profile.linkedin, 'Website / GitHub': profile.site,
-    'Authorized to work': /authorized/i.test(profile.auth || '') ? 'Yes' : 'No',
-    'Requires sponsorship': /sponsor/i.test(profile.auth || '') ? 'Yes' : 'No',
+    'Authorized to work in the U.S.': /citizen|permanent|authorized to work in the us/i.test(profile.auth || '') ? 'Yes' : /sponsor|other country/i.test(profile.auth || '') ? 'No' : '',
+    'Requires sponsorship': /sponsor/i.test(profile.auth || '') ? 'Yes' : /citizen|permanent/i.test(profile.auth || '') ? 'No' : '',
+    ...(/citizen|permanent/i.test(profile.auth || '') ? { 'Citizenship status': profile.auth } : {}),
     [`Why ${job.company}?`]: `I'm drawn to ${job.company} because this ${job.title} role uses the skills I've built the most${fit.matched.length ? `, especially ${listJoin(fit.matched.slice(0, 3).map(pretty))}` : ''}, and I want my work to have a direct impact on the product.`,
   };
 }

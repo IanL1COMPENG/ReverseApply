@@ -28,7 +28,7 @@
 <section class="hero">
   <p class="eyebrow">Free · no account · your data stays in your browser</p>
   <h1>Stop applying to jobs.<br><em>Let the jobs come to you.</em></h1>
-  <p class="lede">Upload your resume once. ReverseApply searches <strong id="companyCount">190+</strong> company career pages directly, scores every opening 1 to 5 for <em>you</em>, rewrites your resume around each job's keywords, and builds a ready-to-send application, PDF included.</p>
+  <p class="lede">Upload your resume once. ReverseApply searches <strong id="companyCount">190+</strong> company career pages and an all-industry job feed (healthcare, education, business, trades, tech and more), scores every opening 1 to 5 for <em>you</em>, rewrites your resume around each job's keywords, and builds a ready-to-send application, PDF included.</p>
   <div class="hero-cta">
     <a href="#app" class="btn btn-big">Upload my resume</a>
     <a href="#how" class="btn btn-ghost">See how it works</a>
@@ -44,24 +44,25 @@
   <h2>Four steps. You do the first one.</h2>
   <ol class="steps">
     <li><span>01</span><h3>Drop your resume</h3><p>PDF, Word or text. It's read in your browser and never uploaded to us; there is no "us" server.</p></li>
-    <li><span>02</span><h3>We search at the source</h3><p>Hundreds of employers' own job boards (Greenhouse, Lever, Ashby) plus remote job feeds, all at once. New postings show up here as soon as the company publishes them.</p></li>
-    <li><span>03</span><h3>Every job gets a score</h3><p>5/5 means apply now. Below 4 we tell you why to skip it. Scores weigh your title, skills, seniority and location against the posting.</p></li>
-    <li><span>04</span><h3>Tailored and ready</h3><p>Your resume is reordered and reworded around the keywords the company's screening software looks for, exported as a clean PDF, with your answers and cover letter ready. Autopilot can fill the forms for you.</p></li>
+    <li><span>02</span><h3>We search for your field</h3><p>Nursing, accounting, teaching, marketing, engineering or anything else: we read your major and past jobs, then search employers' own job boards and an all-industry feed for that kind of work.</p></li>
+    <li><span>03</span><h3>Every job gets a score</h3><p>5/5 means apply now. Below 4 we tell you why to skip it. Scores check the posting's requirements, keywords and wording against your resume. Citizenship or clearance rules are checked against your profile, never counted as resume gaps.</p></li>
+    <li><span>04</span><h3>Tailored and checked</h3><p>Your resume is reworded with the posting's own keywords and exported as a PDF. That PDF is then read back like screening software reads it and scored again, so you see exactly what they'll see.</p></li>
   </ol>
 </section>
 
 <section id="app" class="app">
   <div class="tabs" role="tablist">
-    <button class="tab active" data-tab="resume" role="tab">1 · Resume</button>
-    <button class="tab" data-tab="prefs" role="tab">2 · What you want</button>
-    <button class="tab" data-tab="jobs" role="tab">3 · Jobs <span id="jobsBadge" class="badge" hidden></span></button>
-    <button class="tab" data-tab="interns" role="tab">🎓 College internships <span id="internsBadge" class="badge" hidden></span></button>
-    <button class="tab" data-tab="queue" role="tab">4 · Apply <span id="queueBadge" class="badge" hidden></span></button>
-    <button class="tab" data-tab="panel" role="tab">5 · Resume panel</button>
+    <button class="tab active" data-tab="resume" role="tab"><i>1</i>Resume</button>
+    <button class="tab" data-tab="prefs" role="tab"><i>2</i>Search</button>
+    <button class="tab" data-tab="jobs" role="tab"><i>3</i>Jobs <span id="jobsBadge" class="badge" hidden></span></button>
+    <button class="tab" data-tab="interns" role="tab"><i>3</i>Internships <span id="internsBadge" class="badge" hidden></span></button>
+    <button class="tab" data-tab="queue" role="tab"><i>4</i>Apply <span id="queueBadge" class="badge" hidden></span></button>
+    <button class="tab tab-side" data-tab="panel" role="tab">Check my resume</button>
   </div>
 
   <!-- 1. Resume -->
   <div class="pane active" id="pane-resume">
+    <p class="step-hint"><b>Step 1.</b> Add your resume and check your profile. Everything stays in this browser.</p>
     <div class="grid2">
       <div>
         <label class="drop" id="drop">
@@ -69,73 +70,87 @@
           <strong>Drop your resume here</strong>
           <span>or click to choose · PDF, DOCX or TXT</span>
         </label>
-        <p class="muted small">Or paste it:</p>
-        <textarea id="resumeText" rows="14" placeholder="Paste your resume text here..."></textarea>
-        <div class="row">
-          <button class="btn" id="saveResume">Use this resume</button>
-          <span id="resumeStatus" class="muted small"></span>
-        </div>
+        <details class="mt"><summary>Or paste the text instead</summary>
+          <textarea id="resumeText" rows="14" placeholder="Paste your resume text here..."></textarea>
+          <div class="row"><button class="btn" id="saveResume">Use this text</button></div>
+        </details>
+        <p id="resumeStatus" class="muted small"></p>
+        <div id="fieldBox" class="field-box" hidden></div>
+        <h4>Skills we found <span id="skillCount" class="muted"></span></h4>
+        <div id="skillChips" class="chips"></div>
       </div>
       <div class="card">
         <h3>Your profile</h3>
         <p class="muted small">Pulled from your resume. Fix anything wrong; it goes on every application.</p>
-        <div class="form">
+        <div class="form form-2">
           <label>Full name<input id="pName"></label>
           <label>Email<input id="pEmail" type="email"></label>
           <label>Phone<input id="pPhone"></label>
           <label>Location<input id="pLocation" placeholder="City, State"></label>
-          <label>LinkedIn<input id="pLinkedin" placeholder="https://linkedin.com/in/..."></label>
-          <label>Website / GitHub<input id="pSite"></label>
-          <label>Graduation date <small>(as written on your resume; used for every internship score)</small><input id="pGrad" placeholder="e.g. May 2028"></label>
-          <label>Work authorization<select id="pAuth"><option>Authorized to work in the US</option><option>Need visa sponsorship</option><option>Authorized (other country)</option></select></label>
+          <label>LinkedIn<input id="pLinkedin" placeholder="linkedin.com/in/..."></label>
+          <label>Website / portfolio<input id="pSite"></label>
+          <label class="span2">Graduation date <small>(students: used for every internship score)</small><input id="pGrad" placeholder="e.g. May 2028"></label>
         </div>
-        <h4>Skills we found <span id="skillCount" class="muted"></span></h4>
-        <div id="skillChips" class="chips"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 2. Preferences -->
-  <div class="pane" id="pane-prefs">
-    <div class="grid2">
-      <div class="card">
-        <h3>What are you applying for?</h3>
+        <h4>Can you work in the U.S.?</h4>
+        <p class="muted small">Some jobs need U.S. citizenship, a clearance or a license. That's checked here, not against your resume, so it never counts as a missing skill.</p>
         <div class="form">
-          <label>Target roles <small>(comma separated)</small><input id="fRoles" placeholder="software engineer, data analyst"></label>
-          <label>Must-have keywords <small>(optional)</small><input id="fKeywords" placeholder="python, react"></label>
-          <label>Exclude titles with<input id="fExclude" placeholder="senior, staff, manager"></label>
-          <label>Where<select id="fWhere"><option value="any">Anywhere</option><option value="remote">Remote only</option><option value="us">United States (incl. remote US)</option><option value="custom">Specific places…</option></select></label>
-          <label id="fPlacesWrap" hidden>Places <small>(comma separated)</small><input id="fPlaces" placeholder="New York, San Francisco, Austin"></label>
-          <label>Level<select id="fLevel"><option value="auto">Match my resume</option><option value="entry">Entry / new grad</option><option value="mid">Mid</option><option value="senior">Senior+</option></select></label>
-          <label>Posted within<select id="fAge"><option value="3">3 days</option><option value="7">7 days</option><option value="14" selected>14 days</option><option value="30">30 days</option><option value="9999">Any time</option></select></label>
+          <label>Work status<select id="pAuth"><option value="">Choose…</option><option>U.S. citizen</option><option>Permanent resident (green card)</option><option>Authorized to work in the US</option><option>Need visa sponsorship</option><option>Authorized (other country)</option></select></label>
         </div>
         <div class="checks">
+          <label><input type="checkbox" id="pClearance"> I have an active security clearance</label>
+          <label><input type="checkbox" id="pLicense"> I have a valid driver's license</label>
+        </div>
+      </div>
+    </div>
+    <div class="next-row"><button class="btn btn-big" data-go="prefs">Next: search →</button></div>
+  </div>
+
+  <!-- 2. Search -->
+  <div class="pane" id="pane-prefs">
+    <p class="step-hint"><b>Step 2.</b> Pick the jobs you want. We filled this in from your resume; click a suggestion to add it.</p>
+    <div class="card search-card">
+      <div class="form">
+        <label>Jobs you want <small>(comma separated)</small><input id="fRoles" placeholder="registered nurse, staff accountant, teacher, software engineer"></label>
+      </div>
+      <div id="roleChips" class="chips role-chips"></div>
+      <p id="fieldLine" class="muted small"></p>
+      <div class="form form-3">
+        <label>Where<select id="fWhere"><option value="any">Anywhere</option><option value="remote">Remote only</option><option value="us">United States (incl. remote US)</option><option value="custom">Specific places…</option></select></label>
+        <label>Level<select id="fLevel"><option value="auto">Match my resume</option><option value="entry">Entry / new grad</option><option value="mid">Mid</option><option value="senior">Senior+</option></select></label>
+        <label>Posted within<select id="fAge"><option value="3">3 days</option><option value="7">7 days</option><option value="14" selected>14 days</option><option value="30">30 days</option><option value="9999">Any time</option></select></label>
+      </div>
+      <label id="fPlacesWrap" class="form-line" hidden>Places <small>(comma separated)</small><input id="fPlaces" placeholder="Columbus, Chicago, Remote"></label>
+      <button class="btn btn-big" id="runSearch">Find my jobs</button>
+      <details class="mt"><summary>More options</summary>
+        <div class="form form-2">
+          <label>Must-have keywords <small>(optional)</small><input id="fKeywords" placeholder="epic, excel"></label>
+          <label>Leave out titles with<input id="fExclude" placeholder="senior, director"></label>
+        </div>
+        <div class="checks">
+          <label><input type="checkbox" id="srcMuse" checked> All-industry job feed (The Muse: healthcare, education, business, trades and more)</label>
           <label><input type="checkbox" id="srcAts" checked> Company career pages (<span class="cc">190+</span> employers)</label>
           <label><input type="checkbox" id="srcRemote" checked> Remote job feeds (Remotive, Jobicy, Arbeitnow)</label>
           <label><input type="checkbox" id="srcInterns" checked> College internship lists (SimplifyJobs and more)</label>
         </div>
-        <button class="btn btn-big" id="runSearch">Find my jobs</button>
-      </div>
-      <div class="card">
-        <h3>Add companies you want</h3>
-        <p class="muted small">Paste any company's job board link (Greenhouse, Lever or Ashby) and it's searched too. Example: <code>https://jobs.lever.co/spotify</code></p>
-        <textarea id="extraBoards" rows="5" placeholder="https://boards.greenhouse.io/yourdreamco&#10;https://jobs.ashbyhq.com/another"></textarea>
-        <h3 class="mt">AI boost <span class="pill">optional</span></h3>
-        <p class="muted small">Everything works without AI. Add your own Anthropic API key to unlock the 7-reviewer resume panel, deep job scoring, full resume rewrites and cover letters. The key is stored only in this browser and sent only to Anthropic.</p>
-        <div class="form">
+        <label class="small">Add companies <small class="muted">(paste job board links: Greenhouse, Lever, Ashby or SmartRecruiters)</small>
+          <textarea id="extraBoards" rows="3" placeholder="https://boards.greenhouse.io/yourdreamco&#10;https://jobs.smartrecruiters.com/AnotherCo"></textarea></label>
+      </details>
+      <details><summary>Optional add-ons (AI and faster reading)</summary>
+        <p class="muted small">Everything works without these. Your own Anthropic API key unlocks the 7-reviewer resume panel and AI rewrites. Keys are stored only in this browser.</p>
+        <div class="form form-2">
           <label>Anthropic API key<input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off"></label>
           <label>Model<select id="apiModel"><option value="claude-sonnet-5-5">Claude Sonnet 5.5 (best value)</option><option value="claude-opus-5-5">Claude Opus 5.5 (strongest)</option><option value="claude-haiku-5-5">Claude Haiku 5.5 (fastest)</option></select></label>
         </div>
-        <div class="row"><button class="btn btn-ghost" id="saveKey">Save key</button><button class="btn btn-ghost" id="clearKey">Forget key</button><span id="keyStatus" class="muted small"></span></div>
-        <h3 class="mt">Faster posting reader <span class="pill">optional</span></h3>
-        <p class="muted small">Scores use each job's full description. Postings on Workday and company career sites are read through the free <a href="https://jina.ai/reader" target="_blank" rel="noopener">Jina Reader</a> at about 18 a minute. Paste a free Jina API key to read hundreds a minute. Stored only in this browser.</p>
+        <div class="row"><button class="btn btn-ghost btn-small" id="saveKey">Save key</button><button class="btn btn-ghost btn-small" id="clearKey">Forget key</button><span id="keyStatus" class="muted small"></span></div>
+        <p class="muted small mt">Postings on Workday and company sites are read through the free <a href="https://jina.ai/reader" target="_blank" rel="noopener">Jina Reader</a> (about 18 a minute). A free Jina key reads hundreds a minute.</p>
         <div class="form"><label>Jina API key<input id="readerKey" type="password" placeholder="jina_..." autocomplete="off"></label></div>
-      </div>
+      </details>
     </div>
   </div>
 
   <!-- 3. Jobs -->
   <div class="pane" id="pane-jobs">
+    <p class="step-hint"><b>Step 3.</b> Your best matches first. <b>4+</b> means apply. Click <b>Open</b> to see why, get a tailored resume and apply.</p>
     <div class="jobs-head">
       <div id="searchStatus" class="muted">Run a search from step 2.</div>
       <div class="progress" id="progress" hidden><div></div></div>
@@ -152,10 +167,7 @@
 
   <!-- College internships -->
   <div class="pane" id="pane-interns">
-    <div class="intern-intro">
-      <h3>Internships for college students only</h3>
-      <p class="muted small">No full-time jobs here: only internships, co-ops and student programs, scored on whether <em>a student like you</em> can get them: your graduation year, degree level, GPA, field and skills. Sourced from company job boards plus the student-run SimplifyJobs internship lists (thousands of openings, updated daily).</p>
-    </div>
+    <p class="step-hint"><b>For students.</b> Only internships, co-ops and student programs, scored on whether <em>a student like you</em> can get them: graduation year, degree, GPA, field and skills.</p>
     <div class="jobs-head">
       <div id="internStatus" class="muted">Run a search from step 2. Internships are found in the same search.</div>
       <div class="read-status small" hidden></div>
@@ -172,6 +184,7 @@
 
   <!-- 4. Queue -->
   <div class="pane" id="pane-queue">
+    <p class="step-hint"><b>Step 4.</b> Jobs you queued, each with its own tailored PDF. Open one to apply, or let Autopilot fill the forms.</p>
     <div class="card">
       <h3>Apply queue</h3>
       <p class="muted small">Each job gets its own tailored resume PDF and answers. Open one to review it and apply, or export the whole queue to <strong>Autopilot</strong>, a free helper that opens each application and fills it in for you (setup is one command, see below).</p>
@@ -198,11 +211,22 @@
 
   <!-- 5. Panel -->
   <div class="pane" id="pane-panel">
+    <div class="card mb">
+      <h3>Check my resume against a job <span class="pill">free</span></h3>
+      <p class="muted small">Paste any job posting, or pick one of your matches. Your resume is turned into a PDF, read back the way screening software reads it, and scored with exactly the same rules as your job cards: requirements, keywords as the posting words them, eligibility.</p>
+      <div class="form form-2">
+        <label>One of your matches<select id="checkJob"><option value="">Paste a posting instead…</option></select></label>
+        <label>Job title <small>(if pasting)</small><input id="checkTitle" placeholder="e.g. Staff Accountant"></label>
+      </div>
+      <label class="small form-line">Job posting text <small class="muted">(if pasting)</small><textarea id="checkDesc" rows="6" placeholder="Paste the full job description here"></textarea></label>
+      <button class="btn" id="runJobCheck">Check against this job</button>
+      <div id="jobCheckOut" class="mt"></div>
+    </div>
     <div class="grid2">
       <div class="card">
-        <h3>Instant resume check <span class="pill">free</span></h3>
-        <p class="muted small">The same checks screening software runs before a human ever sees your resume.</p>
-        <button class="btn" id="runCheck">Check my resume</button>
+        <h3>Resume basics <span class="pill">free</span></h3>
+        <p class="muted small">The checks screening software runs on any resume: can it read it, find your contact details, sections, dates and skills.</p>
+        <button class="btn" id="runCheck">Check the basics</button>
         <div id="checkOut" class="mt"></div>
       </div>
       <div class="card">
